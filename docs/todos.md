@@ -1,2 +1,4 @@
 - [ ]: add locks to data manager
+- [ ]: add config to data manager, could close the access controller
+- [ ]: dependency relationship management
 - [ ]: auto parallelize algo processor
