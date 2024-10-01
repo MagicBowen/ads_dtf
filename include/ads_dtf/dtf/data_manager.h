@@ -129,12 +129,14 @@ private:
     const DTYPE* GetDataPointer(LifeSpan span) const {
        if (span >= LifeSpan::Max) return nullptr;
 
-        UserId user = TypeIdOf<USER>();
         DataType dtype = TypeIdOf<DTYPE>();
 
-        AccessMode mode = acl_.GetAccessMode(user, dtype, span);
-        if (mode != AccessMode::Read) {
-            return nullptr;
+        if constexpr (ENABLE_ACCESS_CONTROL) {
+            UserId user = TypeIdOf<USER>();
+            AccessMode mode = acl_.GetAccessMode(user, dtype, span);
+            if (mode != AccessMode::Read) {
+                return nullptr;
+            }
         }
 
         return GetDataPointerOf<DTYPE>(repos_[enum_id_cast(span)], dtype);
@@ -144,12 +146,14 @@ private:
     DTYPE* GetMutDataPointer(LifeSpan span) {
       if (span >= LifeSpan::Max) return nullptr;
 
-        UserId user = TypeIdOf<USER>();
         DataType dtype = TypeIdOf<DTYPE>();
 
-        AccessMode mode = acl_.GetAccessMode(user, dtype, span);
-        if ((mode == AccessMode::None) || (mode == AccessMode::Read)) {
-            return nullptr;
+        if constexpr (ENABLE_ACCESS_CONTROL) {
+            UserId user = TypeIdOf<USER>();
+            AccessMode mode = acl_.GetAccessMode(user, dtype, span);
+            if ((mode == AccessMode::None) || (mode == AccessMode::Read)) {
+                return nullptr;
+            }
         }
 
         return const_cast<DTYPE*>(GetDataPointerOf<DTYPE>(repos_[enum_id_cast(span)], dtype));
@@ -159,12 +163,14 @@ private:
     DTYPE* Mount(LifeSpan span, ARGs&& ...args) {
         if (span >= LifeSpan::Max) return nullptr;
 
-        UserId user = TypeIdOf<USER>();
         DataType dtype = TypeIdOf<DTYPE>();
 
-        AccessMode mode = acl_.GetAccessMode(user, dtype, span);
-        if (mode != AccessMode::Mount) {
-            return nullptr;
+        if constexpr (ENABLE_ACCESS_CONTROL) {
+            UserId user = TypeIdOf<USER>();
+            AccessMode mode = acl_.GetAccessMode(user, dtype, span);
+            if (mode != AccessMode::Mount) {
+                return nullptr;
+            }
         }
 
         DataRepo& repo = repos_[enum_id_cast(span)];
@@ -184,12 +190,14 @@ private:
     void Unmount(LifeSpan span) {
         if (span >= LifeSpan::Max) return;
 
-        UserId user = TypeIdOf<USER>();
         DataType dtype = TypeIdOf<DTYPE>();
 
-        AccessMode mode = acl_.GetAccessMode(user, dtype, span);
-        if (mode != AccessMode::Unmount) {
-            return;
+        if constexpr (ENABLE_ACCESS_CONTROL) {
+            UserId user = TypeIdOf<USER>();
+            AccessMode mode = acl_.GetAccessMode(user, dtype, span);
+            if (mode != AccessMode::Unmount) {
+                return;
+            }
         }
 
         DataRepo& repo = repos_[enum_id_cast(span)];
@@ -207,6 +215,7 @@ private:
 
 private:
     AccessController acl_;
+    static constexpr bool ENABLE_ACCESS_CONTROL = true;
 
 private:
     DataRepo repos_[enum_id_cast(LifeSpan::Max)];
