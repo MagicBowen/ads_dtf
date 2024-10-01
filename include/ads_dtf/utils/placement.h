@@ -11,10 +11,7 @@ namespace ads_dtf {
 
 template <typename T>
 struct Placement {
-    Placement() : constructed(false) {}
-
-    ~Placement() {
-        Destroy();
+    Placement() {
     }
 
     Placement(const Placement&) = delete;
@@ -23,19 +20,12 @@ struct Placement {
     Placement(Placement&&) = delete;
     Placement& operator=(Placement&&) = delete;
 
-    template<typename... Args>
-    void New(Args&&... args) {
-        if (!IsConstructed()) {
-            new (Alloc()) T(std::forward<Args>(args)...);
-            constructed = true;
-        }
+    void* Alloc() {
+        return reinterpret_cast<void*>(&mem_);
     }
 
     void Destroy() {
-        if (IsConstructed()) {
-            GetPointer()->~T();
-            constructed = false;
-        }
+        GetPointer()->~T();
     }
 
     T* operator->() {
@@ -54,25 +44,16 @@ struct Placement {
         return *GetPointer();
     }
 
-    bool IsConstructed() const {
-        return constructed;
-    }
-
     T* GetPointer() {
-        return reinterpret_cast<T*>(&mem);
+        return reinterpret_cast<T*>(&mem_);
     }
 
     const T* GetPointer() const {
-        return reinterpret_cast<const T*>(&mem);
+        return reinterpret_cast<const T*>(&mem_);
     }
 
-private:
-    void* Alloc() {
-        return reinterpret_cast<void*>(&mem);
-    }
 
-    typename std::aligned_storage<sizeof(T), alignof(T)>::type mem;
-    bool constructed;
+    typename std::aligned_storage<sizeof(T), alignof(T)>::type mem_;
 };
 
 }

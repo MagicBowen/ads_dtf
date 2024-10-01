@@ -1,0 +1,2 @@
+- [ ]: add locks to data manager
+- [ ]: auto parallelize algo processor

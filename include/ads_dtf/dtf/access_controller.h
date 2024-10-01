@@ -5,6 +5,7 @@
 #ifndef ACCESS_CONTROLLER_H
 #define ACCESS_CONTROLLER_H
 
+#include "ads_dtf/utils/enum_cast.h"
 #include "ads_dtf/dtf/access_mode.h"
 #include "ads_dtf/dtf/data_type.h"
 #include "ads_dtf/dtf/life_span.h"

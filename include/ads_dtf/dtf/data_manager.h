@@ -15,10 +15,11 @@ namespace ads_dtf
 {
 
 struct DataContext;
+struct DataFramework;
 
 struct DataManager {
     template<typename DTYPE, typename USER>
-    bool Apply(USER*, LifeSpan span, AccessMode mode) {
+    bool Apply(const USER*, LifeSpan span, AccessMode mode) {
         UserId user = TypeIdOf<USER>();
         DataType dtype = TypeIdOf<DTYPE>();
 
@@ -27,57 +28,103 @@ struct DataManager {
         }
 
         if (mode == AccessMode::Mount) {
-            return PlacementData<DTYPE>(dtype, span, mode);
+            return PlacementDataObject<DTYPE>(dtype, span, mode);
         }
-    }
-
-private:
-    struct PlacementBase {
-        virtual ~PlacementBase() = default;
-        virtual bool IsConstructed() const = 0;
-        virtual void Destroy() = 0;
-    };
-
-    template<typename DTYPE>
-    struct PlacementDType : public PlacementBase {
-
-        PlacementDType() : placement() {}
-
-        bool IsConstructed() const override {
-            return placement.IsConstructed();
-        }
-
-        void Destroy() override {
-            placement.Destroy();
-        }
-
-        Placement<DTYPE> placement;
-    };
-
-    template <typename DTYPE>
-    bool PlacementData(DataType dtype, LifeSpan span, AccessMode mode) {
-
-        if (span >= LifeSpan::Max) return nullptr;
-
-        DataObjects& objects = dataObjects_[enum_id_cast(span)];
-        auto it = objects->find(dtype);
-        if (it != objects->end()) {
-            return false;
-        }
-
-        auto placementPtr = std::make_unique<PlacementDType<DTYPE>>();
-        if (!placementPtr) {
-            return false;
-        }
-
-        if constexpr (std::is_default_constructible_v<DTYPE>) {
-            placementPtr->placement.New();
-        }
-        objects->emplace(dtype, std::move(placementPtr));
         return true;
     }
 
 private:
+    struct DataObjectBase {
+        virtual ~DataObjectBase() = default;
+        virtual void* Alloc() = 0;
+        virtual void Destroy() = 0;
+        virtual void TryConstruct() = 0;
+        virtual bool HasConstructed() const = 0;
+        virtual bool IsConstructable() const = 0;
+    };
+
+    template<typename DTYPE>
+    struct DataObjectPlacement : public DataObjectBase {
+        DataObjectPlacement() = default;
+
+        void* Alloc() override {
+            constructed_ = true;
+            return placement.Alloc();
+        }
+
+        void Destroy() override {
+            placement.Destroy();
+            constructed_ = false;
+        }
+
+        bool HasConstructed() const override {
+            return constructed_;
+        }
+
+        bool IsConstructable() const override {
+            return defaultConstructable_;
+        }
+
+        void TryConstruct() override {
+            if constexpr (std::is_default_constructible_v<DTYPE>) {
+                new (placement.Alloc()) DTYPE{};
+                constructed_ = true;
+            } else if constexpr (std::is_pod_v<DTYPE>) {
+                memset(placement.GetPointer(), 0, sizeof(DTYPE));
+                constructed_ = true;
+            } else if constexpr (std::is_pointer_v<DTYPE>) {
+                new (placement.Alloc()) DTYPE{nullptr};
+                constructed_ = true;
+            } else {
+                constructed_ = false;
+            }
+            defaultConstructable_ = constructed_;
+        }
+
+        Placement<DTYPE> placement;
+        bool constructed_{false};
+        bool defaultConstructable_{false};
+    };
+
+    template <typename DTYPE>
+    bool PlacementDataObject(DataType dtype, LifeSpan span, AccessMode mode) {
+
+        if (span >= LifeSpan::Max) return false;
+
+        DataRepo& repo = repos_[enum_id_cast(span)];
+        auto result = repo.find(dtype);
+        if (result != repo.end()) {
+            return false;
+        }
+
+        auto dataObjPtr = std::make_unique<DataObjectPlacement<DTYPE>>();
+        if (!dataObjPtr) {
+            return false;
+        }
+
+        dataObjPtr->TryConstruct();
+
+        repo.emplace(dtype, std::move(dataObjPtr));
+        return true;
+    }
+
+private:
+    using DataRepo = std::unordered_map<DataType, std::unique_ptr<DataObjectBase>>;
+
+    template<typename DTYPE>
+    const DTYPE* GetDataPointerOf(const DataRepo& repo, DataType dtype) const {
+        auto result = repo.find(dtype);
+        if (result == repo.end()) {
+            return nullptr;
+        }
+
+        if (!result->second->HasConstructed()) {
+            return nullptr;
+        }
+        auto dataObjPtr = static_cast<DataObjectPlacement<DTYPE>*>(result->second.get());
+        return dataObjPtr->placement.GetPointer();
+    }
+
     template<typename DTYPE, typename USER>
     const DTYPE* GetDataPointer(LifeSpan span) const {
        if (span >= LifeSpan::Max) return nullptr;
@@ -86,28 +133,26 @@ private:
         DataType dtype = TypeIdOf<DTYPE>();
 
         AccessMode mode = acl_.GetAccessMode(user, dtype, span);
-        if (mode != AccessMode::READ) {
+        if (mode != AccessMode::Read) {
             return nullptr;
         }
 
-        DataObjects& objects = dataObjects_[enum_id_cast(span)];
-        DataType dtype = TypeIdOf<DTYPE>();
-
-        auto it = objects.find(dtype);
-        if (it == objects.end()) {
-            return nullptr;
-        }
-
-        if (!it->second->IsConstructed()) {
-            return nullptr;
-        }
-
-        return (static_cast<PlacementDType<DTYPE>*>(it->second.get()))->placement.GetPointer();
+        return GetDataPointerOf<DTYPE>(repos_[enum_id_cast(span)], dtype);
     }
 
     template<typename DTYPE, typename USER>
     DTYPE* GetMutDataPointer(LifeSpan span) {
-        return const_cast<DTYPE*>(GetDataPointerConst<DTYPE>(span));
+      if (span >= LifeSpan::Max) return nullptr;
+
+        UserId user = TypeIdOf<USER>();
+        DataType dtype = TypeIdOf<DTYPE>();
+
+        AccessMode mode = acl_.GetAccessMode(user, dtype, span);
+        if ((mode == AccessMode::None) || (mode == AccessMode::Read)) {
+            return nullptr;
+        }
+
+        return const_cast<DTYPE*>(GetDataPointerOf<DTYPE>(repos_[enum_id_cast(span)], dtype));
     }
 
     template<typename DTYPE, typename USER, typename ...ARGs>
@@ -122,18 +167,17 @@ private:
             return nullptr;
         }
 
-        DataObjects& objects = dataObjects_[enum_id_cast(span)];
-        auto it = objects.find(dtype);
-        if (it == objects.end()) {
+        DataRepo& repo = repos_[enum_id_cast(span)];
+        auto result = repo.find(dtype);
+        if (result == repo.end()) {
             return nullptr;
         }
 
-        if (it->second->IsConstructed()) {
+        if (result->second->HasConstructed()) {
             return nullptr;
         }
 
-        auto placementPtr = static_cast<PlacementDType<DTYPE>*>(it->second.get());
-        return placementPtr->placement.New(std::forward<ARGs>(args)...);
+        return new (result->second->Alloc()) DTYPE(std::forward<ARGs>(args)...);
     }
 
     template<typename DTYPE, typename USER>
@@ -148,36 +192,28 @@ private:
             return;
         }
 
-        DataObjects& objects = dataObjects_[enum_id_cast(span)];
-        auto it = objects.find(dtype);
-        if (it == objects.end()) {
+        DataRepo& repo = repos_[enum_id_cast(span)];
+        auto result = repo.find(dtype);
+        if (result == repo.end()) {
             return;
         }
 
-        if (it->second->IsConstructed()) {
-            it->second->Destroy();
+        if (result->second->HasConstructed()) {
+            result->second->Destroy();
         }
     }
 
-    void Reset(LifeSpan span) {
-        if (span >= LifeSpan::Max) return;
-
-        DataObjects& objects = dataObjects_[enum_id_cast(span)];
-        for (auto& [type_id, placementPtr] : objects) {
-            placementPtr->Destroy();
-        }
-    }
+    void ResetRepo(LifeSpan span);
 
 private:
     AccessController acl_;
 
 private:
-    using DataObjects = std::unordered_map<DataType, std::unique_ptr<PlacementBase>>;
-    DataObjects dataObjects_[enum_id_cast(LifeSpan::Max)];
+    DataRepo repos_[enum_id_cast(LifeSpan::Max)];
 
 private:
-    DataManager() = default;
-    friend struct DataContext; 
+    friend struct DataFramework;
+    friend struct DataContext;
 };
 
 } // namespace ads_dtf
