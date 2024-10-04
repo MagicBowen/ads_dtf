@@ -8,6 +8,7 @@
 #include "ads_dtf/dtf/access_controller.h"
 #include "ads_dtf/utils/placement.h"
 #include "ads_dtf/utils/enum_cast.h"
+#include "ads_dtf/utils/default_constructor.h"
 #include <unordered_map>
 #include <memory>
 
@@ -66,19 +67,8 @@ private:
         }
 
         void TryConstruct() override {
-            if constexpr (std::is_default_constructible_v<DTYPE>) {
-                new (placement.Alloc()) DTYPE{};
-                constructed_ = true;
-            } else if constexpr (std::is_pod_v<DTYPE>) {
-                memset(placement.GetPointer(), 0, sizeof(DTYPE));
-                constructed_ = true;
-            } else if constexpr (std::is_pointer_v<DTYPE>) {
-                new (placement.Alloc()) DTYPE{nullptr};
-                constructed_ = true;
-            } else {
-                constructed_ = false;
-            }
-            defaultConstructable_ = constructed_;
+            constructed_ = DefaultConstructor<DTYPE>::Construct(placement.GetPointer());
+            defaultConstructable_ = constructed_;            
         }
 
         Placement<DTYPE> placement;
@@ -131,7 +121,7 @@ private:
 
         DataType dtype = TypeIdOf<DTYPE>();
 
-        if constexpr (ENABLE_ACCESS_CONTROL) {
+        if (ENABLE_ACCESS_CONTROL) {
             UserId user = TypeIdOf<USER>();
             AccessMode mode = acl_.GetAccessMode(user, dtype, span);
             if (mode != AccessMode::Read) {
@@ -148,7 +138,7 @@ private:
 
         DataType dtype = TypeIdOf<DTYPE>();
 
-        if constexpr (ENABLE_ACCESS_CONTROL) {
+        if (ENABLE_ACCESS_CONTROL) {
             UserId user = TypeIdOf<USER>();
             AccessMode mode = acl_.GetAccessMode(user, dtype, span);
             if ((mode == AccessMode::None) || (mode == AccessMode::Read)) {
@@ -165,7 +155,7 @@ private:
 
         DataType dtype = TypeIdOf<DTYPE>();
 
-        if constexpr (ENABLE_ACCESS_CONTROL) {
+        if (ENABLE_ACCESS_CONTROL) {
             UserId user = TypeIdOf<USER>();
             AccessMode mode = acl_.GetAccessMode(user, dtype, span);
             if (mode != AccessMode::Mount) {
@@ -192,7 +182,7 @@ private:
 
         DataType dtype = TypeIdOf<DTYPE>();
 
-        if constexpr (ENABLE_ACCESS_CONTROL) {
+        if (ENABLE_ACCESS_CONTROL) {
             UserId user = TypeIdOf<USER>();
             AccessMode mode = acl_.GetAccessMode(user, dtype, span);
             if (mode != AccessMode::Unmount) {

@@ -7,7 +7,9 @@ void DataManager::ResetRepo(LifeSpan span) {
     if (span >= LifeSpan::Max) return;
 
     DataRepo& repo = repos_[enum_id_cast(span)];
-    for (auto& [dtype, dataObjPtr] : repo) {
+    for (auto& pair : repo) {
+        auto& dtype = pair.first;
+        std::unique_ptr<DataObjectBase>& dataObjPtr = pair.second;
         dataObjPtr->Destroy();
         if (dataObjPtr->IsConstructable()) {
             dataObjPtr->TryConstruct();
