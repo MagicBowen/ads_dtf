@@ -19,7 +19,7 @@ struct DataContext {
     }
 
     template<typename DTYPE, typename USER>
-    DTYPE* GetFrameOfMul(const USER* user) {
+    DTYPE* GetFrameOfMut(const USER* user) {
         return manager_.GetMutDataPointer<DTYPE, USER>(LifeSpan::Frame);
     }
 

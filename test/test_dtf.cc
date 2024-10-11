@@ -118,7 +118,7 @@ struct DeliveryProcessor : AlgoProcessor {
             return false;
         }
 
-        DeliveryData* delivery_data = context.GetFrameOfMul<DeliveryData>(this);
+        DeliveryData* delivery_data = context.GetFrameOfMut<DeliveryData>(this);
         if (!delivery_data) {
             std::cerr << "Failed to get DeliveryData\n";
             return false;
