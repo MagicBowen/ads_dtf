@@ -14,61 +14,26 @@ struct DataContext {
     DataContext(DataManager& manager) 
     : manager_(manager) {}
 
-    template<typename DTYPE, typename USER>
-    auto GetFrameOf(const USER* user) const -> OptPtr<const DTYPE> {
-        return OptPtr<const DTYPE>{manager_.GetDataPointer<DTYPE, USER>(LifeSpan::Frame)};
+    template<typename DTYPE, LifeSpan span, typename USER>
+    auto GetConst(const USER* user) const -> OptPtr<const DTYPE> {
+        return OptPtr<const DTYPE>{manager_.GetConst<DTYPE, USER>(span)};
     }
 
-    template<typename DTYPE, typename USER>
-    auto GetFrameOfMut(const USER* user) -> OptPtr<DTYPE> {
-        return OptPtr<DTYPE>{manager_.GetMutDataPointer<DTYPE, USER>(LifeSpan::Frame)};
+    template<typename DTYPE, LifeSpan span, typename USER>
+    auto Get(const USER* user) -> OptPtr<DTYPE> {
+        return OptPtr<DTYPE>{manager_.Get<DTYPE, USER>(span)};
     }
 
-    template<typename DTYPE, typename USER>
-    auto GetCacheOf(const USER* user) const -> OptPtr<const DTYPE> {
-        return OptPtr<const DTYPE>{manager_.GetDataPointer<DTYPE, USER>(LifeSpan::Cache)};
+    template<typename DTYPE, LifeSpan span, typename USER, typename... ARGs>
+    auto Create(const USER*, ARGs&&... args) -> OptPtr<DTYPE> {
+        return OptPtr<DTYPE>{manager_.Create<DTYPE, USER>(span, std::forward<ARGs>(args)...)};
     }
 
-    template<typename DTYPE, typename USER>
-    auto GetCacheOfMut(const USER* user) -> OptPtr<DTYPE> {
-        return OptPtr<DTYPE>{manager_.GetMutDataPointer<DTYPE, USER>(LifeSpan::Cache)};
+    template<typename DTYPE, LifeSpan span, typename USER>
+    void Destroy(const USER*) {
+        manager_.Destroy<DTYPE, USER>(span);
     }
 
-    template<typename DTYPE, typename USER>
-    auto GetGlobalOf(const USER* user) const -> OptPtr<const DTYPE> {
-        return OptPtr<const DTYPE>{manager_.GetDataPointer<DTYPE, USER>(LifeSpan::Global)};
-    }
-
-    template<typename DTYPE, typename USER>
-    auto GetGlobalOfMut(const USER* user) -> OptPtr<DTYPE> {
-        return OptPtr<DTYPE>{manager_.GetMutDataPointer<DTYPE, USER>(LifeSpan::Global)};
-    }
-
-    template<typename DTYPE, typename USER, typename... ARGs>
-    auto MountFrameOf(const USER*, ARGs&&... args) -> OptPtr<DTYPE> {
-        return OptPtr<DTYPE>{manager_.Create<DTYPE, USER>(LifeSpan::Frame, std::forward<ARGs>(args)...)};
-    }
-
-    template<typename DTYPE, typename USER, typename... ARGs>
-    auto MountCacheOf(const USER*, ARGs&&... args) -> OptPtr<DTYPE> {
-        return OptPtr<DTYPE>{manager_.Create<DTYPE, USER>(LifeSpan::Cache, std::forward<ARGs>(args)...)};
-    }
-
-    template<typename DTYPE, typename USER, typename... ARGs>
-    auto MountGlobalOf(const USER*, ARGs&&... args) -> OptPtr<DTYPE> {
-        return OptPtr<DTYPE>{manager_.Create<DTYPE, USER>(LifeSpan::Global, std::forward<ARGs>(args)...)};
-    }
-
-    template<typename DTYPE, typename USER, typename... ARGs>
-    void UnmountFrameOf(const USER*, ARGs&&... args) {
-        manager_.Destroy<DTYPE, USER>(LifeSpan::Frame);
-    }
-
-    template<typename DTYPE, typename USER, typename... ARGs>
-    void UnmountCacheOf(const USER*, ARGs&&... args) {
-        manager_.Destroy<DTYPE, USER>(LifeSpan::Cache);
-    }
-    
 private:
     DataManager& manager_;
 };

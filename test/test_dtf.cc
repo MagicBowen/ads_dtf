@@ -41,7 +41,7 @@ struct FrameRecvProcessor : AlgoProcessor {
         static FrameMsg msg;
         msg.frameId++;
 
-        auto frame_data = context.MountFrameOf<FrameData>(this, &msg);
+        auto frame_data = context.Create<FrameData, LifeSpan::Frame>(this, &msg);
         if (!frame_data) {
             std::cerr << "Failed to mount FrameData\n";
             return false;
@@ -67,13 +67,13 @@ struct CalcProcessor : AlgoProcessor {
     }
 
     bool Exec(DataContext& context) override {
-        auto frame_data = context.GetFrameOf<FrameData>(this);
+        auto frame_data = context.GetConst<FrameData, LifeSpan::Frame>(this);
         if (!frame_data) {
             std::cerr << "Failed to get FrameData\n";
             return false;
         }
 
-        auto process_data = context.MountFrameOf<ProcessData>(this, frame_data->msg->frameId + 1);
+        auto process_data = context.Create<ProcessData, LifeSpan::Frame>(this, frame_data->msg->frameId + 1);
         if (!process_data) {
             std::cerr << "Failed to mount ProcessData\n";
             return false;
@@ -106,19 +106,19 @@ struct DeliveryProcessor : AlgoProcessor {
     }
 
     bool Exec(DataContext& context) override {
-        auto frame_data = context.GetFrameOf<FrameData>(this);
+        auto frame_data = context.GetConst<FrameData, LifeSpan::Frame>(this);
         if (!frame_data) {
             std::cerr << "Failed to get FrameData\n";
             return false;
         }
 
-        auto process_data = context.GetFrameOf<ProcessData>(this);
+        auto process_data = context.GetConst<ProcessData, LifeSpan::Frame>(this);
         if (!process_data) {
             std::cerr << "Failed to mount ProcessData\n";
             return false;
         }
 
-        auto delivery_data = context.GetFrameOfMut<DeliveryData>(this);
+        auto delivery_data = context.Get<DeliveryData, LifeSpan::Frame>(this);
         if (!delivery_data) {
             std::cerr << "Failed to get DeliveryData\n";
             return false;

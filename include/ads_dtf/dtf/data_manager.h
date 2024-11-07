@@ -110,7 +110,7 @@ private:
     using DataRepo = std::unordered_map<DataType, std::unique_ptr<DataObjectBase>>;
 
     template<typename DTYPE>
-    const DTYPE* GetDataPointerOf(const DataRepo& repo, DataType dtype) const {
+    const DTYPE* GetDataPtr(const DataRepo& repo, DataType dtype) const {
         auto result = repo.find(dtype);
         if (result == repo.end()) {
             return nullptr;
@@ -124,7 +124,7 @@ private:
     }
 
     template<typename DTYPE, typename USER>
-    const DTYPE* GetDataPointer(LifeSpan span) const {
+    const DTYPE* GetConst(LifeSpan span) const {
        if (span >= LifeSpan::Max) return nullptr;
 
         DataType dtype = TypeIdOf<DTYPE>();
@@ -137,11 +137,11 @@ private:
             }
         }
 
-        return GetDataPointerOf<DTYPE>(repos_[enum_id_cast(span)], dtype);
+        return GetDataPtr<DTYPE>(repos_[enum_id_cast(span)], dtype);
     }
 
     template<typename DTYPE, typename USER>
-    DTYPE* GetMutDataPointer(LifeSpan span) {
+    DTYPE* Get(LifeSpan span) {
       if (span >= LifeSpan::Max) return nullptr;
 
         DataType dtype = TypeIdOf<DTYPE>();
@@ -154,7 +154,7 @@ private:
             }
         }
 
-        return const_cast<DTYPE*>(GetDataPointerOf<DTYPE>(repos_[enum_id_cast(span)], dtype));
+        return const_cast<DTYPE*>(GetDataPtr<DTYPE>(repos_[enum_id_cast(span)], dtype));
     }
 
     template<typename DTYPE, typename USER, typename ...ARGs>
