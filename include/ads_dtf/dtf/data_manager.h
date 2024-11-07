@@ -8,7 +8,8 @@
 #include "ads_dtf/dtf/access_controller.h"
 #include "ads_dtf/utils/placement.h"
 #include "ads_dtf/utils/enum_cast.h"
-#include "ads_dtf/utils/default_constructor.h"
+#include "ads_dtf/utils/auto_construct.h"
+#include "ads_dtf/utils/auto_clear.h"
 #include <unordered_map>
 #include <memory>
 
@@ -39,6 +40,7 @@ private:
         virtual ~DataObjectBase() = default;
         virtual void* Alloc() = 0;
         virtual void Destroy() = 0;
+        virtual void Clear() = 0;
         virtual void TryConstruct() = 0;
         virtual bool HasConstructed() const = 0;
         virtual bool IsConstructable() const = 0;
@@ -58,6 +60,12 @@ private:
             constructed_ = false;
         }
 
+        void Clear() override {
+            if (constructed_) {
+                auto_clear(placement.GetPointer());
+            }
+        }
+
         bool HasConstructed() const override {
             return constructed_;
         }
@@ -67,7 +75,7 @@ private:
         }
 
         void TryConstruct() override {
-            constructed_ = DefaultConstructor<DTYPE>::Construct(placement.GetPointer());
+            constructed_ = auto_construct(placement.GetPointer());
             defaultConstructable_ = constructed_;            
         }
 
@@ -170,7 +178,7 @@ private:
         }
 
         if (result->second->HasConstructed()) {
-            return nullptr;
+            result->second->Destroy();
         }
 
         return new (result->second->Alloc()) DTYPE(std::forward<ARGs>(args)...);

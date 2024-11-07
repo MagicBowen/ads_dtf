@@ -69,6 +69,11 @@ private:
     };
 };
 
+template <typename T>
+bool auto_construct(T* ptr) {
+    return DefaultConstructor<T>::Construct(ptr);
+}
+
 }
 
 #endif

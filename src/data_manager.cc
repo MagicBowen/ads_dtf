@@ -10,10 +10,7 @@ void DataManager::ResetRepo(LifeSpan span) {
     for (auto& pair : repo) {
         auto& dtype = pair.first;
         std::unique_ptr<DataObjectBase>& dataObjPtr = pair.second;
-        dataObjPtr->Destroy();
-        if (dataObjPtr->IsConstructable()) {
-            dataObjPtr->TryConstruct();
-        }
+        dataObjPtr->Clear();
     }
 }
 
