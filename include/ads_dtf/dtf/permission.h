@@ -5,86 +5,55 @@
 #ifndef PERMISSION_H
 #define PERMISSION_H
 
-#include "ads_dtf/dtf/data_framework.h"
+#include "ads_dtf/dtf/access_mode.h"
+#include "ads_dtf/dtf/life_span.h"
+#include "ads_dtf/utils/optional_ptr.h"
 
 namespace ads_dtf
 {
-
-template <typename USER, typename DTYPE, LifeSpan SPAN>
-struct PermissionRegistrar {
-    PermissionRegistrar() {
-        DataFramework::Instance().Register<USER, DTYPE, SPAN, MODE>();
-    }
-};
-
-template<typename DTYPE, LifeSpan SPAN>
-struct DtypeInfo {
-    using dtype = DTYPE;
-    using lspan = SPAN;
-    constexpr static bool sync = false;
-    constexpr static std::size_t capacity = 1;
-};
 
 template<typename USER, typename DTYPE, LifeSpan SPAN>
 struct Permission {
     constexpr static AccessMode mode = AccessMode::None;
 };
 
-#define DECLARE_CREATE_PERMISSION(USER, SPAN, DTYPE, CAPACITY)      \
-    template<>                                                      \
-    struct Permission<USER, DTYPE, SPAN> {                          \
-        constexpr static AccessMode mode = AccessMode::Create;      \
-    };                                                              \
-    template<>                                                      \
-    struct DtypeInfo<DTYPE, SPAN> {                                 \
-        constexpr static bool sync = false;                         \
-        constexpr static std::size_t capacity = CAPACITY;           \
-    };                                                              \
-    static PermissionRegistrar<USER, DTYPE, SPAN, AccessMode::Create> reg_##USER##_##DTYPE##_##SPAN##_Create;
+template<typename DTYPE, LifeSpan SPAN>
+struct DtypeInfo {
+    constexpr static bool sync = false;
+    constexpr static std::size_t capacity = 1;
+};
 
-#define DECLARE_CREATE_SYNC_PERMISSION(USER, SPAN, DTYPE, CAPACITY) \
-    template<>                                                      \
-    struct Permission<USER, DTYPE, SPAN> {                          \
-        constexpr static AccessMode mode = AccessMode::CreateSync;  \
-    };                                                              \
-    template<>                                                      \
-    struct DtypeInfo<DTYPE, SPAN> {                                 \
-        constexpr static bool sync = true;                          \
-        constexpr static std::size_t capacity = CAPACITY;           \
-    };                                                              \
-    static PermissionRegistrar<USER, DTYPE, SPAN, AccessMode::CreateSync> reg_##USER##_##DTYPE##_##SPAN##_CreateSync;
+template <typename USER, typename DTYPE, LifeSpan SPAN>
+class return_optional_ptr {
+    constexpr static AccessMode mode = Permission<USER, DTYPE, SPAN>::mode;
+    constexpr static bool sync = DtypeInfo<DTYPE, SPAN>::sync;
+public:
+    static constexpr bool value = (!sync && ((mode == AccessMode::Write) || (mode == AccessMode::Create)));
+};
 
-#define DECLARE_READ_PERMISSION(USER, SPAN, DTYPE)                  \
-    template<>                                                      \
-    struct Permission<USER, DTYPE, SPAN> {                          \
-        constexpr static AccessMode mode = AccessMode::Read;        \
-    };                                                              \
-    static PermissionRegistrar<USER, DTYPE, SPAN, AccessMode::CreateSync> reg_##USER##_##DTYPE##_##SPAN##_Read;
+template <typename USER, typename DTYPE, LifeSpan SPAN>
+class return_const_optional_ptr {
+    constexpr static AccessMode mode = Permission<USER, DTYPE, SPAN>::mode;
+    constexpr static bool sync = DtypeInfo<DTYPE, SPAN>::sync;
+public:
+    static constexpr bool value = (!sync && (mode == AccessMode::Read));
+};
 
-#define DECLARE_WRITE_PERMISSION(USER, SPAN, DTYPE)                 \
-    template<>                                                      \
-    struct Permission<USER, DTYPE, SPAN> {                          \
-        constexpr static AccessMode mode = AccessMode::Write;       \
-    };                                                              \
-    static PermissionRegistrar<USER, DTYPE, SPAN, AccessMode::CreateSync> reg_##USER##_##DTYPE##_##SPAN##_Write;
+template <typename USER, typename DTYPE, LifeSpan SPAN>
+class return_sync_write_optional_ptr {
+    constexpr static AccessMode mode = Permission<USER, DTYPE, SPAN>::mode;
+    constexpr static bool sync = DtypeInfo<DTYPE, SPAN>::sync;
+public:
+    static constexpr bool value = (sync && ((mode == AccessMode::Write) || (mode == AccessMode::CreateSync)));
+};
 
-    /////////////////////////////////////////////////////////////////////////
-    template <typename USER, typename DTYPE, LifeSpan SPAN>
-    struct ReturnType {
-    private:
-        constexpr static AccessMode mode = Permission<USER, DTYPE, SPAN>::mode;
-        constexpr static bool sync = DtypeInfo<DTYPE, SPAN>::sync;
-
-        struct SelectType {
-            using type =
-                std::conditional_t< mode == AccessMode::Read,
-                    OptionalPtr<const DTYPE, sync>,
-                    OptionalPtr<DTYPE, sync>
-                >;
-        };
-    public:
-        using type = typename SelectType::type;
-    };
+template <typename USER, typename DTYPE, LifeSpan SPAN>
+class return_sync_read_optional_ptr {
+    constexpr static AccessMode mode = Permission<USER, DTYPE, SPAN>::mode;
+    constexpr static bool sync = DtypeInfo<DTYPE, SPAN>::sync;
+public:
+    static constexpr bool value = (sync && (mode == AccessMode::Read));
+};
 
 } // namespace ads_dtf
 

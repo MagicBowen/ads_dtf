@@ -6,11 +6,11 @@
 #define DATA_MANAGER_H
 
 #include "ads_dtf/dtf/access_controller.h"
+#include "ads_dtf/dtf/permission.h"
 #include "ads_dtf/utils/placement.h"
 #include "ads_dtf/utils/enum_cast.h"
 #include "ads_dtf/utils/auto_construct.h"
 #include "ads_dtf/utils/auto_clear.h"
-#include "ads_dtf/utils/optional_ptr.h"
 #include <unordered_map>
 #include <memory>
 
@@ -122,6 +122,27 @@ private:
         }
         auto dataObjPtr = static_cast<DataObjectPlacement<DTYPE>*>(result->second.get());
         return dataObjPtr->placement.GetPointer();
+    }
+
+    template<typename USER, typename DTYPE, LifeSpan SPAN>
+    typename std::enable_if<return_optional_ptr<USER, DTYPE, SPAN>::value, OptionalPtr<DTYPE, false>>::type
+    GetObj() {
+        static_assert(SPAN < LifeSpan::Max, "Invalid LifeSpan");
+        static_assert((Permission<USER, DTYPE, SPAN>::mode == AccessMode::Write) || 
+                      (Permission<USER, DTYPE, SPAN>::mode == AccessMode::Create), "Invalid AccessMode");
+        static_assert(!DtypeInfo<DTYPE, SPAN>::sync, "Invalid Sync");
+
+        return OptionalPtr<DTYPE, false>(const_cast<DTYPE*>(GetDataPtr<DTYPE>(repos_[enum_id_cast(SPAN)], TypeIdOf<DTYPE>()))); 
+    }
+
+    template<typename USER, typename DTYPE, LifeSpan SPAN>
+    typename std::enable_if<return_const_optional_ptr<USER, DTYPE, SPAN>::value, OptionalPtr<const DTYPE, false>>::type
+    GetObj() const {
+        static_assert(SPAN < LifeSpan::Max, "Invalid LifeSpan");
+        static_assert(Permission<USER, DTYPE, SPAN>::mode == AccessMode::Read, "Invalid AccessMode");
+        static_assert(!DtypeInfo<DTYPE, SPAN>::sync, "Invalid Sync");
+
+        return OptionalPtr<const DTYPE, false>(GetDataPtr<DTYPE>(repos_[enum_id_cast(SPAN)], TypeIdOf<DTYPE>()));
     }
 
     template<typename USER, typename DTYPE>
