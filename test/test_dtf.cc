@@ -30,7 +30,7 @@ struct DeliveryData {
 
 struct FrameRecvProcessor : AlgoProcessor {
     bool Init(DataManager& manager) override {
-        if (!manager.Apply<FrameData>(this, LifeSpan::Frame, AccessMode::Mount)) {
+        if (!manager.Apply<FrameData>(this, LifeSpan::Frame, AccessMode::Create)) {
             std::cerr << "Failed to apply mount of FrameData\n";
             return false;
         }
@@ -47,7 +47,7 @@ struct FrameRecvProcessor : AlgoProcessor {
             return false;
         }
 
-        std::cout << "Mount Frame: " << frame_data->msg->frameId << "\n";
+        std::cout << "Create Frame: " << frame_data->msg->frameId << "\n";
         return true;
     }
 };
@@ -59,7 +59,7 @@ struct CalcProcessor : AlgoProcessor {
             return false;
         }
 
-        if (!manager.Apply<ProcessData>(this, LifeSpan::Frame, AccessMode::Mount)) {
+        if (!manager.Apply<ProcessData>(this, LifeSpan::Frame, AccessMode::Create)) {
             std::cerr << "Failed to apply mount of ProcessData\n";
             return false;
         }
@@ -98,7 +98,7 @@ struct DeliveryProcessor : AlgoProcessor {
             return false;
         }
 
-        if (!manager.Apply<DeliveryData>(this, LifeSpan::Frame, AccessMode::Mount)) {
+        if (!manager.Apply<DeliveryData>(this, LifeSpan::Frame, AccessMode::Create)) {
             std::cerr << "Failed to apply mount of DeliveryData\n";
             return false;
         }

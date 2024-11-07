@@ -29,7 +29,7 @@ struct DataManager {
             return false;
         }
 
-        if (mode == AccessMode::Mount) {
+        if (mode == AccessMode::Create) {
             return PlacementDataObject<DTYPE>(dtype, span, mode);
         }
         return true;
@@ -158,7 +158,7 @@ private:
     }
 
     template<typename DTYPE, typename USER, typename ...ARGs>
-    DTYPE* Mount(LifeSpan span, ARGs&& ...args) {
+    DTYPE* Create(LifeSpan span, ARGs&& ...args) {
         if (span >= LifeSpan::Max) return nullptr;
 
         DataType dtype = TypeIdOf<DTYPE>();
@@ -166,7 +166,7 @@ private:
         if (ENABLE_ACCESS_CONTROL) {
             UserId user = TypeIdOf<USER>();
             AccessMode mode = acl_.GetAccessMode(user, dtype, span);
-            if (mode != AccessMode::Mount) {
+            if (mode != AccessMode::Create) {
                 return nullptr;
             }
         }
@@ -185,7 +185,7 @@ private:
     }
 
     template<typename DTYPE, typename USER>
-    void Unmount(LifeSpan span) {
+    void Destroy(LifeSpan span) {
         if (span >= LifeSpan::Max) return;
 
         DataType dtype = TypeIdOf<DTYPE>();
@@ -193,7 +193,7 @@ private:
         if (ENABLE_ACCESS_CONTROL) {
             UserId user = TypeIdOf<USER>();
             AccessMode mode = acl_.GetAccessMode(user, dtype, span);
-            if (mode != AccessMode::Unmount) {
+            if (mode != AccessMode::Destroy) {
                 return;
             }
         }

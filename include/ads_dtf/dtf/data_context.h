@@ -46,27 +46,27 @@ struct DataContext {
 
     template<typename DTYPE, typename USER, typename... ARGs>
     auto MountFrameOf(const USER*, ARGs&&... args) -> OptPtr<DTYPE> {
-        return OptPtr<DTYPE>{manager_.Mount<DTYPE, USER>(LifeSpan::Frame, std::forward<ARGs>(args)...)};
+        return OptPtr<DTYPE>{manager_.Create<DTYPE, USER>(LifeSpan::Frame, std::forward<ARGs>(args)...)};
     }
 
     template<typename DTYPE, typename USER, typename... ARGs>
     auto MountCacheOf(const USER*, ARGs&&... args) -> OptPtr<DTYPE> {
-        return OptPtr<DTYPE>{manager_.Mount<DTYPE, USER>(LifeSpan::Cache, std::forward<ARGs>(args)...)};
+        return OptPtr<DTYPE>{manager_.Create<DTYPE, USER>(LifeSpan::Cache, std::forward<ARGs>(args)...)};
     }
 
     template<typename DTYPE, typename USER, typename... ARGs>
     auto MountGlobalOf(const USER*, ARGs&&... args) -> OptPtr<DTYPE> {
-        return OptPtr<DTYPE>{manager_.Mount<DTYPE, USER>(LifeSpan::Global, std::forward<ARGs>(args)...)};
+        return OptPtr<DTYPE>{manager_.Create<DTYPE, USER>(LifeSpan::Global, std::forward<ARGs>(args)...)};
     }
 
     template<typename DTYPE, typename USER, typename... ARGs>
     void UnmountFrameOf(const USER*, ARGs&&... args) {
-        manager_.Unmount<DTYPE, USER>(LifeSpan::Frame);
+        manager_.Destroy<DTYPE, USER>(LifeSpan::Frame);
     }
 
     template<typename DTYPE, typename USER, typename... ARGs>
     void UnmountCacheOf(const USER*, ARGs&&... args) {
-        manager_.Unmount<DTYPE, USER>(LifeSpan::Cache);
+        manager_.Destroy<DTYPE, USER>(LifeSpan::Cache);
     }
     
 private:

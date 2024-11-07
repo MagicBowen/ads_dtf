@@ -10,8 +10,8 @@ namespace ads_dtf {
 enum class AccessMode {
     Read,
     Write,
-    Mount,
-    Unmount,
+    Create,
+    Destroy,
     None,
 };
 
