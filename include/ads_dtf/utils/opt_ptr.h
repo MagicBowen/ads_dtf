@@ -20,13 +20,17 @@ public:
 
     bool HasValue() const { return ptr_ != nullptr; }
     explicit operator bool() const { return HasValue(); }
+    T* Get() const { return ptr_; }
+
 
     T* operator->() const {
         assert(ptr_ && "OptionalPtr is null. assertion failed.");
         return ptr_;
     }
 
-    T* Get() const { return ptr_; }
+    T& operator*() { 
+        return *ptr_; 
+    }
 
     template<typename FEmpty, typename FNonEmpty>
     void Match(FEmpty empty_func, FNonEmpty non_empty_func) const {
