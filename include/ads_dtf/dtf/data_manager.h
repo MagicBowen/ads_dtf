@@ -193,7 +193,7 @@ private:
         if (ENABLE_ACCESS_CONTROL) {
             UserId user = TypeIdOf<USER>();
             AccessMode mode = acl_.GetAccessMode(user, dtype, span);
-            if (mode != AccessMode::Destroy) {
+            if ((mode != AccessMode::Create) && (mode != AccessMode::CreateSync)) {
                 return;
             }
         }

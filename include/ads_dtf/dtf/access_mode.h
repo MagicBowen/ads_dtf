@@ -11,7 +11,7 @@ enum class AccessMode {
     Read,
     Write,
     Create,
-    Destroy,
+    CreateSync,
     None,
 };
 
