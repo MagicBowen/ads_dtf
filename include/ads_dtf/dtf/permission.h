@@ -27,7 +27,7 @@ struct DtypeInfo {
 
 template<typename USER, typename DTYPE, LifeSpan SPAN>
 struct Permission {
-    constexpr static AccessMode mode = MODE;
+    constexpr static AccessMode mode = AccessMode::None;
 };
 
 #define DECLARE_CREATE_PERMISSION(USER, SPAN, DTYPE, CAPACITY)      \
@@ -67,6 +67,24 @@ struct Permission {
         constexpr static AccessMode mode = AccessMode::Write;       \
     };                                                              \
     static PermissionRegistrar<USER, DTYPE, SPAN, AccessMode::CreateSync> reg_##USER##_##DTYPE##_##SPAN##_Write;
+
+    /////////////////////////////////////////////////////////////////////////
+    template <typename USER, typename DTYPE, LifeSpan SPAN>
+    struct ReturnType {
+    private:
+        constexpr static AccessMode mode = Permission<USER, DTYPE, SPAN>::mode;
+        constexpr static bool sync = DtypeInfo<DTYPE, SPAN>::sync;
+
+        struct SelectType {
+            using type =
+                std::conditional_t< mode == AccessMode::Read,
+                    OptionalPtr<const DTYPE, sync>,
+                    OptionalPtr<DTYPE, sync>
+                >;
+        };
+    public:
+        using type = typename SelectType::type;
+    };
 
 } // namespace ads_dtf
 

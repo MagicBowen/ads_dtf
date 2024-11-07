@@ -10,6 +10,7 @@
 #include "ads_dtf/utils/enum_cast.h"
 #include "ads_dtf/utils/auto_construct.h"
 #include "ads_dtf/utils/auto_clear.h"
+#include "ads_dtf/utils/optional_ptr.h"
 #include <unordered_map>
 #include <memory>
 
