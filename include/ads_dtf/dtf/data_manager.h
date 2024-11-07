@@ -20,8 +20,8 @@ struct DataContext;
 struct DataFramework;
 
 struct DataManager {
-    template<typename DTYPE, typename USER>
-    bool Apply(const USER*, LifeSpan span, AccessMode mode) {
+    template<typename USER, typename DTYPE>
+    bool Apply(LifeSpan span, AccessMode mode) {
         UserId user = TypeIdOf<USER>();
         DataType dtype = TypeIdOf<DTYPE>();
 
@@ -123,7 +123,7 @@ private:
         return dataObjPtr->placement.GetPointer();
     }
 
-    template<typename DTYPE, typename USER>
+    template<typename USER, typename DTYPE>
     const DTYPE* GetConst(LifeSpan span) const {
        if (span >= LifeSpan::Max) return nullptr;
 
@@ -140,7 +140,7 @@ private:
         return GetDataPtr<DTYPE>(repos_[enum_id_cast(span)], dtype);
     }
 
-    template<typename DTYPE, typename USER>
+    template<typename USER, typename DTYPE>
     DTYPE* Get(LifeSpan span) {
       if (span >= LifeSpan::Max) return nullptr;
 
@@ -157,7 +157,7 @@ private:
         return const_cast<DTYPE*>(GetDataPtr<DTYPE>(repos_[enum_id_cast(span)], dtype));
     }
 
-    template<typename DTYPE, typename USER, typename ...ARGs>
+    template<typename USER, typename DTYPE, typename ...ARGs>
     DTYPE* Create(LifeSpan span, ARGs&& ...args) {
         if (span >= LifeSpan::Max) return nullptr;
 
@@ -184,7 +184,7 @@ private:
         return new (result->second->Alloc()) DTYPE(std::forward<ARGs>(args)...);
     }
 
-    template<typename DTYPE, typename USER>
+    template<typename USER, typename DTYPE>
     void Destroy(LifeSpan span) {
         if (span >= LifeSpan::Max) return;
 

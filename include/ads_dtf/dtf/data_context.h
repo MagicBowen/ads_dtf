@@ -16,22 +16,22 @@ struct DataContext {
 
     template<typename DTYPE, LifeSpan span, typename USER>
     auto GetConst(const USER* user) const -> OptPtr<const DTYPE> {
-        return OptPtr<const DTYPE>{manager_.GetConst<DTYPE, USER>(span)};
+        return OptPtr<const DTYPE>{manager_.GetConst<USER, DTYPE>(span)};
     }
 
     template<typename DTYPE, LifeSpan span, typename USER>
     auto Get(const USER* user) -> OptPtr<DTYPE> {
-        return OptPtr<DTYPE>{manager_.Get<DTYPE, USER>(span)};
+        return OptPtr<DTYPE>{manager_.Get<USER, DTYPE>(span)};
     }
 
     template<typename DTYPE, LifeSpan span, typename USER, typename... ARGs>
     auto Create(const USER*, ARGs&&... args) -> OptPtr<DTYPE> {
-        return OptPtr<DTYPE>{manager_.Create<DTYPE, USER>(span, std::forward<ARGs>(args)...)};
+        return OptPtr<DTYPE>{manager_.Create<USER, DTYPE>(span, std::forward<ARGs>(args)...)};
     }
 
     template<typename DTYPE, LifeSpan span, typename USER>
     void Destroy(const USER*) {
-        manager_.Destroy<DTYPE, USER>(span);
+        manager_.Destroy<USER, DTYPE>(span);
     }
 
 private:

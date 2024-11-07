@@ -15,6 +15,11 @@ struct DataFramework {
         return instance;
     }
 
+    template<typename USER, typename DTYPE, LifeSpan SPAN, AccessMode MODE>
+    void Register() {
+        manager_.Apply<DTYPE, USER>(SPAN, MODE);
+    }
+
     DataManager& GetManager() {
         return manager_;
     }

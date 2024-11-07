@@ -30,7 +30,7 @@ struct DeliveryData {
 
 struct FrameRecvProcessor : AlgoProcessor {
     bool Init(DataManager& manager) override {
-        if (!manager.Apply<FrameData>(this, LifeSpan::Frame, AccessMode::Create)) {
+        if (!manager.Apply<FrameRecvProcessor, FrameData>(LifeSpan::Frame, AccessMode::Create)) {
             std::cerr << "Failed to apply mount of FrameData\n";
             return false;
         }
@@ -54,12 +54,12 @@ struct FrameRecvProcessor : AlgoProcessor {
 
 struct CalcProcessor : AlgoProcessor {
     bool Init(DataManager& manager) override {
-        if (!manager.Apply<FrameData>(this, LifeSpan::Frame, AccessMode::Read)) {
+        if (!manager.Apply<CalcProcessor, FrameData>(LifeSpan::Frame, AccessMode::Read)) {
             std::cerr << "Failed to apply read of FrameData\n";
             return false;
         }
 
-        if (!manager.Apply<ProcessData>(this, LifeSpan::Frame, AccessMode::Create)) {
+        if (!manager.Apply<CalcProcessor, ProcessData>(LifeSpan::Frame, AccessMode::Create)) {
             std::cerr << "Failed to apply mount of ProcessData\n";
             return false;
         }
@@ -88,17 +88,17 @@ struct CalcProcessor : AlgoProcessor {
 
 struct DeliveryProcessor : AlgoProcessor {
     bool Init(DataManager& manager) override {
-        if (!manager.Apply<FrameData>(this, LifeSpan::Frame, AccessMode::Read)) {
+        if (!manager.Apply<DeliveryProcessor, FrameData>(LifeSpan::Frame, AccessMode::Read)) {
             std::cerr << "Failed to apply read of FrameData\n";
             return false;
         }
         
-        if (!manager.Apply<ProcessData>(this, LifeSpan::Frame, AccessMode::Read)) {
+        if (!manager.Apply<DeliveryProcessor, ProcessData>(LifeSpan::Frame, AccessMode::Read)) {
             std::cerr << "Failed to apply read of ProcessData\n";
             return false;
         }
 
-        if (!manager.Apply<DeliveryData>(this, LifeSpan::Frame, AccessMode::Create)) {
+        if (!manager.Apply<DeliveryProcessor, DeliveryData>(LifeSpan::Frame, AccessMode::Create)) {
             std::cerr << "Failed to apply mount of DeliveryData\n";
             return false;
         }
