@@ -18,6 +18,7 @@ struct FrameMsg {
 struct FrameData {
     FrameData(const FrameMsg* msg) : msg(msg) {}
     const FrameMsg* msg{nullptr};
+    int value{0};
 };
 
 struct ProcessData {
@@ -85,9 +86,9 @@ struct DeliveryProcessor : AlgoProcessor {
     bool Exec(DataContext& context) override;
 };
 
-PERMISSION_REGISTER_FOR_READ(DeliveryProcessor, Frame, FrameData);
-PERMISSION_REGISTER_FOR_READ(DeliveryProcessor, Frame, ProcessData);
 PERMISSION_REGISTER_FOR_CREATE(DeliveryProcessor, Frame, DeliveryData, 1);
+PERMISSION_REGISTER_FOR_WRITE(DeliveryProcessor, Frame, FrameData);
+PERMISSION_REGISTER_FOR_READ(DeliveryProcessor, Frame, ProcessData);
 
 ////////////////////////////////////////////////////////////////////////////
 bool FrameRecvProcessor::Exec(DataContext& context) {
@@ -129,6 +130,8 @@ bool DeliveryProcessor::Exec(DataContext& context) {
         std::cerr << "Failed to get FrameData\n";
         return false;
     }
+
+    frame_data->value = 100;
 
     auto process_data = context.Fetch<ProcessData, LifeSpan::Frame>(this);
     if (!process_data) {
