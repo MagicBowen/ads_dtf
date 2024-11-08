@@ -9,7 +9,7 @@ namespace ads_dtf
 {
 
 enum class SyncMode {
-    Relax,
+    None,
     Sync,
 };
 

@@ -12,7 +12,7 @@
 namespace ads_dtf
 { 
 
-template<typename T, SyncMode = SyncMode::Relax>
+template<typename T, SyncMode = SyncMode::None>
 class OptionalPtr {
 public:
     explicit OptionalPtr(T* ptr) : ptr_(ptr) {}
@@ -50,7 +50,7 @@ private:
 };
 
 template<typename T>
-class OptionalPtr<const T, SyncMode::Relax> {
+class OptionalPtr<const T, SyncMode::None> {
 public:
     explicit OptionalPtr(const T* ptr) : ptr_(ptr) {}
 
@@ -173,7 +173,7 @@ public:
     }
 
     template<typename Handle>
-    void Require(const Handle& handle) const {
+    void Apply(const Handle& handle) const {
         assert(ptr_ && "OptionalPtr is null. Assertion failed.");
         handle(*ptr_);
     }

@@ -125,28 +125,28 @@ private:
     }
 
     template<typename USER, typename DTYPE, LifeSpan SPAN>
-    typename std::enable_if<return_optional_ptr<USER, DTYPE, SPAN>::value, OptionalPtr<DTYPE, SyncMode::Relax>>::type
+    typename std::enable_if<return_optional_ptr<USER, DTYPE, SPAN>::value, OptionalPtr<DTYPE, SyncMode::None>>::type
     Fetch() {
         static_assert(SPAN < LifeSpan::Max, "Invalid LifeSpan");
         static_assert((Permission<USER, DTYPE, SPAN>::mode == AccessMode::Write) || 
                       (Permission<USER, DTYPE, SPAN>::mode == AccessMode::Create), "Invalid AccessMode");
         static_assert(!DtypeInfo<DTYPE, SPAN>::sync, "Invalid Sync");
 
-        return OptionalPtr<DTYPE, SyncMode::Relax>(const_cast<DTYPE*>(GetDataPtr<DTYPE>(repos_[enum_id_cast(SPAN)], TypeIdOf<DTYPE>()))); 
+        return OptionalPtr<DTYPE, SyncMode::None>(const_cast<DTYPE*>(GetDataPtr<DTYPE>(repos_[enum_id_cast(SPAN)], TypeIdOf<DTYPE>()))); 
     }
 
     template<typename USER, typename DTYPE, LifeSpan SPAN>
-    typename std::enable_if<return_const_optional_ptr<USER, DTYPE, SPAN>::value, OptionalPtr<const DTYPE, SyncMode::Relax>>::type
+    typename std::enable_if<return_const_optional_ptr<USER, DTYPE, SPAN>::value, OptionalPtr<const DTYPE, SyncMode::None>>::type
     Fetch() const {
         static_assert(SPAN < LifeSpan::Max, "Invalid LifeSpan");
         static_assert(Permission<USER, DTYPE, SPAN>::mode == AccessMode::Read, "Invalid AccessMode");
         static_assert(!DtypeInfo<DTYPE, SPAN>::sync, "Invalid Sync");
 
-        return OptionalPtr<const DTYPE, SyncMode::Relax>(GetDataPtr<DTYPE>(repos_[enum_id_cast(SPAN)], TypeIdOf<DTYPE>()));
+        return OptionalPtr<const DTYPE, SyncMode::None>(GetDataPtr<DTYPE>(repos_[enum_id_cast(SPAN)], TypeIdOf<DTYPE>()));
     }
 
     template<typename USER, typename DTYPE, LifeSpan SPAN, typename ...ARGs>
-    typename std::enable_if<return_optional_ptr<USER, DTYPE, SPAN>::value, OptionalPtr<DTYPE, SyncMode::Relax>>::type
+    typename std::enable_if<return_optional_ptr<USER, DTYPE, SPAN>::value, OptionalPtr<DTYPE, SyncMode::None>>::type
     Create(ARGs&& ...args) {
         static_assert(SPAN < LifeSpan::Max, "Invalid LifeSpan");
         static_assert(Permission<USER, DTYPE, SPAN>::mode == AccessMode::Create, "Invalid AccessMode");
@@ -158,21 +158,20 @@ private:
         auto result = repo.find(dtype);
         if (result == repo.end()) {
             std::cout << "Failed to find dtype: " << dtype << std::endl;
-            return OptionalPtr<DTYPE, SyncMode::Relax>(nullptr);
+            return OptionalPtr<DTYPE, SyncMode::None>(nullptr);
         }
 
         if (result->second->HasConstructed()) {
             result->second->Destroy();
         }
 
-        return OptionalPtr<DTYPE, SyncMode::Relax>(new (result->second->Alloc()) DTYPE(std::forward<ARGs>(args)...));
+        return OptionalPtr<DTYPE, SyncMode::None>(new (result->second->Alloc()) DTYPE(std::forward<ARGs>(args)...));
     }
 
     template<typename USER, typename DTYPE, LifeSpan SPAN>
     void Destroy(LifeSpan span) {
         static_assert(SPAN < LifeSpan::Max, "Invalid LifeSpan");
-        static_assert((Permission<USER, DTYPE, SPAN>::mode == AccessMode::Create) ||
-                      (Permission<USER, DTYPE, SPAN>::mode == AccessMode::CreateSync)  , "Invalid AccessMode");
+        static_assert((Permission<USER, DTYPE, SPAN>::mode == AccessMode::Create), "Invalid AccessMode");
 
         DataType dtype = TypeIdOf<DTYPE>();
 
