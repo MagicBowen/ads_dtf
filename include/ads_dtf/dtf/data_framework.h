@@ -17,7 +17,7 @@ struct DataFramework {
 
     template<typename USER, typename DTYPE, LifeSpan SPAN, AccessMode MODE>
     void Register() {
-        manager_.Apply<DTYPE, USER>(SPAN, MODE);
+        manager_.Apply<USER, DTYPE>(SPAN, MODE);
     }
 
     DataManager& GetManager() {

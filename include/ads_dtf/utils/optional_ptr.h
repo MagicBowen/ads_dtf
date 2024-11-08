@@ -5,13 +5,14 @@
 #ifndef OPTIONAL_PTR_H
 #define OPTIONAL_PTR_H
 
+#include "ads_dtf/utils/sync_mode.h"
 #include <shared_mutex>
 #include <utility>
 
 namespace ads_dtf
 { 
 
-template<typename T, bool SYNC = false>
+template<typename T, SyncMode = SyncMode::Relax>
 class OptionalPtr {
 public:
     explicit OptionalPtr(T* ptr) : ptr_(ptr) {}
@@ -21,7 +22,7 @@ public:
     T* Get() { return ptr_; }
 
     T* operator->() {
-        assert(ptr_ && "OptionalPtr is null. assertion failed.");
+        assert(ptr_ && "OptionalPtr is null. Assertion failed.");
         return ptr_;
     }
 
@@ -39,8 +40,8 @@ public:
     }
 
     template<typename Handle>
-    void Require(Handle& handle) {
-        assert(ptr_ && "OptionalPtr is null. require() assertion failed.");
+    void Apply(Handle& handle) {
+        assert(ptr_ && "OptionalPtr is null. Assertion failed.");
         handle(*ptr_);
     }
 
@@ -49,7 +50,7 @@ private:
 };
 
 template<typename T>
-class OptionalPtr<const T, false> {
+class OptionalPtr<const T, SyncMode::Relax> {
 public:
     explicit OptionalPtr(const T* ptr) : ptr_(ptr) {}
 
@@ -58,7 +59,7 @@ public:
     const T* Get() const { return ptr_; }
 
     const T* operator->() const {
-        assert(ptr_ && "OptionalPtr is null. assertion failed.");
+        assert(ptr_ && "OptionalPtr is null. Assertion failed.");
         return ptr_;
     }
 
@@ -76,8 +77,8 @@ public:
     }
 
     template<typename Handle>
-    void Require(const Handle& handle) const {
-        assert(ptr_ && "OptionalPtr is null. require() assertion failed.");
+    void Apply(const Handle& handle) const {
+        assert(ptr_ && "OptionalPtr is null. Assertion failed.");
         handle(*ptr_);
     }
 
@@ -86,7 +87,7 @@ private:
 };
 
 template<typename T>
-class OptionalPtr<T, true> {
+class OptionalPtr<T, SyncMode::Sync> {
 public:
     OptionalPtr(T* ptr, std::shared_timed_mutex& mtx) 
     : ptr_(ptr), lock_(mtx) {
@@ -105,7 +106,7 @@ public:
     T* Get() { return ptr_; }
 
     T* operator->() {
-        assert(ptr_ && "OptionalPtr is null. assertion failed.");
+        assert(ptr_ && "OptionalPtr is null. Assertion failed.");
         return ptr_;
     }
 
@@ -123,8 +124,8 @@ public:
     }
 
     template<typename Handle>
-    void Require(Handle& handle) {
-        assert(ptr_ && "OptionalPtr is null. require() assertion failed.");
+    void Apply(Handle& handle) {
+        assert(ptr_ && "OptionalPtr is null. Assertion failed.");
         handle(*ptr_);
     }
 
@@ -134,7 +135,7 @@ private:
 };
 
 template<typename T>
-class OptionalPtr<const T, true> {
+class OptionalPtr<const T, SyncMode::Sync> {
 public:
     OptionalPtr(T* ptr, std::shared_timed_mutex& mtx) 
     : ptr_(ptr), lock_(mtx)  {
@@ -154,7 +155,7 @@ public:
     const T* Get() const { return ptr_; }
 
     const T* operator->() const {
-        assert(ptr_ && "OptionalPtr is null. assertion failed.");
+        assert(ptr_ && "OptionalPtr is null. Assertion failed.");
         return ptr_;
     }
 
@@ -173,7 +174,7 @@ public:
 
     template<typename Handle>
     void Require(const Handle& handle) const {
-        assert(ptr_ && "OptionalPtr is null. require() assertion failed.");
+        assert(ptr_ && "OptionalPtr is null. Assertion failed.");
         handle(*ptr_);
     }
 

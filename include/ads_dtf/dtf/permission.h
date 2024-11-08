@@ -14,7 +14,7 @@ namespace ads_dtf
 
 template<typename USER, typename DTYPE, LifeSpan SPAN>
 struct Permission {
-    constexpr static AccessMode mode = AccessMode::None;
+    constexpr static AccessMode mode = AccessMode::None; 
 };
 
 template<typename DTYPE, LifeSpan SPAN>
