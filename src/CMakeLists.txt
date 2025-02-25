@@ -37,7 +37,7 @@ target_include_directories(${TARGET_LIB}
     PRIVATE ${PROJECT_SOURCE_DIR}/deps
 )
 
-set_target_properties(${TARGET_LIB} PROPERTIES CXX_STANDARD 14)
+set_target_properties(${TARGET_LIB} PROPERTIES CXX_STANDARD 17)
 
 # ---- Add executable target ----
 
