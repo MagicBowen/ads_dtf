@@ -131,16 +131,21 @@ struct Processor {
         return name_;
     }
 
-    virtual void Init() = 0;
     Status Process(ProcessContext& ctx) {
         if (ctx.IsStopped()) {
-            std::cout << "Processor " << name_ << " is skiped!\n";
+            std::cout << name_ << " is skiped!\n";
             return Status::CANCELLED;
         }
-        std::cout << "Processor " << name_ << " is processing...\n";
+        std::cout << name_ << " is processing...\n";
         auto status = Execute(ctx);
-        std::cout << "Processor " << name_ << " is finished with status: " << status << "\n";
+        std::cout << name_ << " is finished with status: " << status << "\n";
         return status;
+    }
+    
+    virtual void Init() = 0;
+
+    virtual void UpdatePath(const std::string& path) {
+        name_ = path + "/" + name_;
     }
 
     virtual ~Processor() = default;
@@ -161,6 +166,7 @@ private:
     void Init() override {
         algo_.Init();
     }
+
     Status Execute(ProcessContext& ctx) override {
         algo_.Execute(ctx.GetDataContext());
         return Status::OK;
@@ -185,6 +191,13 @@ private:
         }
     }
 
+    void UpdatePath(const std::string& path) override {
+        Processor::UpdatePath(path);
+        for (auto& processor : processors_) {
+            processor->UpdatePath(name_);
+        }
+    }
+
 protected:
     std::vector<std::unique_ptr<Processor>> processors_;
 };
@@ -197,7 +210,6 @@ private:
     Status Execute(ProcessContext& ctx) override {
         for (auto& processor : processors_) {
             auto status = processor->Process(ctx);
-            std::cout << "SequentialProcessor(" << name_ << ") process " << processor->GetName() << " with status: " << status << "\n";
             if (status != Status::OK) {
                 return status;
             }
@@ -233,7 +245,6 @@ private:
             if (ret.status != Status::OK) {
                 overall = ret.status;
             }
-            std::cout << "ParallelProcessor(" << name_ << ") process " << ret.name << " with status: " << ret.status << "\n";
         }
         return overall;
     }
@@ -268,7 +279,6 @@ private:
 
         for (auto& fut : futures) {
             auto ret = fut.get();
-            std::cout << "RaceProcessor(" << name_ << ") process " << ret.name << " with status: " << ret.status << "\n";
         }
         return overall;
     }
@@ -280,6 +290,7 @@ private:
 struct Scheduler {
     Scheduler(std::unique_ptr<Processor> rootProcessor)
     : rootProcessor_(std::move(rootProcessor)) {
+        rootProcessor_->UpdatePath("root");
         rootProcessor_->Init();
     }
 
@@ -317,9 +328,9 @@ std::unique_ptr<Processor> MakeGroupProcessor(const std::string& name, PROCESSOR
 // Processor 构造器宏
 
 #define PROCESS(ALGO) MakeProcessor<ALGO>(#ALGO)
-#define SEQUENCE(...) MakeGroupProcessor<SequentialProcessor>("SequentialProcessor", __VA_ARGS__)
-#define PARALLEL(...) MakeGroupProcessor<ParallelProcessor>("ParallelProcessor", __VA_ARGS__)
-#define RACE(...)     MakeGroupProcessor<RaceProcessor>("RaceProcessor", __VA_ARGS__)
+#define SEQUENCE(...) MakeGroupProcessor<SequentialProcessor>("sequential", __VA_ARGS__)
+#define PARALLEL(...) MakeGroupProcessor<ParallelProcessor>("parallel", __VA_ARGS__)
+#define RACE(...)     MakeGroupProcessor<RaceProcessor>("race", __VA_ARGS__)
 
 #define SCHEDULE(...) Scheduler(__VA_ARGS__)
 
@@ -327,51 +338,47 @@ std::unique_ptr<Processor> MakeGroupProcessor(const std::string& name, PROCESSOR
 
 // 模拟业务算法
 struct MockAlgo {
-    MockAlgo(std::string algoName, std::chrono::milliseconds sleepTime = std::chrono::milliseconds(0))
-    : algoName_{algoName}, sleepTime_{sleepTime} 
+    MockAlgo(std::chrono::milliseconds sleepTime = std::chrono::milliseconds(0))
+    : sleepTime_{sleepTime} 
     {}
 
     void Init() {
-        std::cout << "Algorithm " << algoName_ << " Init\n";
     }
 
     void Execute(DataContext& context) {
-        std::cout << "Algorithm " << algoName_ << " is processing...\n";
         std::this_thread::sleep_for(sleepTime_);
-        std::cout << "Algorithm " << algoName_ << " is finished\n";
     }
 
 private:
     std::chrono::milliseconds sleepTime_;
-    std::string algoName_;
 };
 
 struct MockAlgo1 : MockAlgo {
-    MockAlgo1() : MockAlgo("MockAlgo1", std::chrono::milliseconds(100)) {}
+    MockAlgo1() : MockAlgo(std::chrono::milliseconds(100)) {}
 };
 
 struct MockAlgo2 : MockAlgo {
-    MockAlgo2() : MockAlgo("MockAlgo2", std::chrono::milliseconds(200)) {}
+    MockAlgo2() : MockAlgo(std::chrono::milliseconds(200)) {}
 };
 
 struct MockAlgo3 : MockAlgo {
-    MockAlgo3() : MockAlgo("MockAlgo3", std::chrono::milliseconds(300)) {}
+    MockAlgo3() : MockAlgo(std::chrono::milliseconds(300)) {}
 };
 
 struct MockAlgo4 : MockAlgo {
-    MockAlgo4() : MockAlgo("MockAlgo4", std::chrono::milliseconds(400)) {}
+    MockAlgo4() : MockAlgo(std::chrono::milliseconds(400)) {}
 };
 
 struct MockAlgo5 : MockAlgo {
-    MockAlgo5() : MockAlgo("MockAlgo5", std::chrono::milliseconds(500)) {}
+    MockAlgo5() : MockAlgo(std::chrono::milliseconds(500)) {}
 };
 
 struct MockAlgo6 : MockAlgo {
-    MockAlgo6() : MockAlgo("MockAlgo6", std::chrono::milliseconds(600)) {}
+    MockAlgo6() : MockAlgo(std::chrono::milliseconds(600)) {}
 };
 
 struct MockAlgo7 : MockAlgo {
-    MockAlgo7() : MockAlgo("MockAlgo7", std::chrono::milliseconds(700)) {}
+    MockAlgo7() : MockAlgo(std::chrono::milliseconds(700)) {}
 };
 
 ////////////////////////////////////////////////////////////////////
