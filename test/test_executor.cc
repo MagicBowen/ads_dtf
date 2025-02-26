@@ -80,6 +80,10 @@ std::ostream& operator<<(std::ostream& os, Status status) {
 
 // 执行器的上下文
 struct ProcessContext {
+    static ProcessContext CreateSubContext(ProcessContext& parentCtx) {
+        return ProcessContext{parentCtx.GetDataContext(), &parentCtx.stopFlag_};
+    }
+
     ProcessContext(DataContext& dataCtx)
     : dataCtx_(dataCtx) {}
 
@@ -97,16 +101,23 @@ struct ProcessContext {
     }
 
     bool IsStopped() const {
+        if (parentStopFlag_ && parentStopFlag_->load()) {
+            return true;
+        }
         return stopFlag_.load();
     }
 
     DataContext& GetDataContext() {
         return dataCtx_;
     }
+private:
+    ProcessContext(DataContext& dataCtx, const std::atomic<bool>* parentStopFlag)
+    : dataCtx_(dataCtx), parentStopFlag_(parentStopFlag) {}
 
 private:
     DataContext& dataCtx_;
     std::atomic<bool> stopFlag_{false};
+    const std::atomic<bool>* parentStopFlag_{nullptr};
 };
 
 ////////////////////////////////////////////////////////////////////
@@ -238,7 +249,7 @@ private:
         std::promise<Status> finalPromise;
         auto finalFuture = finalPromise.get_future();
 
-        ProcessContext innerCtx{ctx.GetDataContext()};
+        auto innerCtx = ProcessContext::CreateSubContext(ctx);
 
         for (auto& processor : processors_) {
             futures.emplace_back(std::async(std::launch::async, [&]() {
