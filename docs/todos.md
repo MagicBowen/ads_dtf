@@ -1,5 +1,5 @@
-- [ ]: test race processor;
-- [ ]: auto allocate name for processor;
-- [ ]: add data parallel processor;
-- [ ]: add data race processor;
-- [ ]: init data processor by type and size;
+- [x]: test race processor;
+- [x]: auto allocate name for processor;
+- [x]: add data parallel processor;
+- [x]: add data race processor;
+- [x]: init data processor by type and size;
