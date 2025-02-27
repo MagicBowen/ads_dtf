@@ -34,7 +34,7 @@ struct DataContext {
         if (it != data_map_.end()) {
             return nullptr;
         }
-        data_map_[typeid(T)] = T(std::forward<Args>(args)...);
+        data_map_[typeid(T)] = T{std::forward<Args>(args)...};
         return std::any_cast<T>(&data_map_[typeid(T)]);
     }
 
@@ -142,10 +142,11 @@ struct Processor {
         return status;
     }
     
-    virtual void Init() = 0;
-
-    virtual void UpdatePath(const std::string& path) {
+    virtual void Init(const std::string& path, std::optional<std::size_t> parallelId) {
         name_ = path + "/" + name_;
+        if (parallelId) {
+            name_ += "[" + std::to_string(*parallelId) + "]";
+        }
     }
 
     virtual ~Processor() = default;
@@ -163,7 +164,8 @@ struct AlgoProcessor : Processor {
     using Processor::Processor;
 
 private:
-    void Init() override {
+    void Init(const std::string& path, std::optional<std::size_t> parallelId) override {
+        Processor::Init(path, parallelId);
         algo_.Init();
     }
 
@@ -185,16 +187,10 @@ struct GroupProcessor : Processor {
     }
 
 private:
-    void Init() override {
+    void Init(const std::string& path, std::optional<std::size_t> parallelId) override {
+        Processor::Init(path, parallelId);
         for (auto& processor : processors_) {
-            processor->Init();
-        }
-    }
-
-    void UpdatePath(const std::string& path) override {
-        Processor::UpdatePath(path);
-        for (auto& processor : processors_) {
-            processor->UpdatePath(name_);
+            processor->Init(name_, std::nullopt);
         }
     }
 
@@ -285,13 +281,138 @@ private:
 };
 
 ////////////////////////////////////////////////////////////////////
+// Data parallelism
+
+namespace data_parallel_detail {
+
+    template<typename T>
+    thread_local uint32_t parallel_id = -1;
+    
+    template<typename T>
+    uint32_t GetParallelId() {
+        return parallel_id<T>;
+    }
+    
+    template<typename T>
+    void SetParallelId(uint32_t id) {
+        parallel_id<T> = id;
+    }
+
+    template<typename T>
+    struct AutoSwitchParallelId {
+        AutoSwitchParallelId(uint32_t id) {
+            oriId_ = GetParallelId<T>();
+            SetParallelId<T>(id);
+        }
+
+        ~AutoSwitchParallelId() {
+            SetParallelId<T>(oriId_);
+        }
+    private:
+        uint32_t oriId_;
+    };
+}
+
+using ProcessorFactory = std::function<std::unique_ptr<Processor>()>;
+
+template<typename DTYPE, uint32_t N>
+struct DataParallelProcessor : GroupProcessor{
+    DataParallelProcessor(const std::string& name, ProcessorFactory factory)
+    : GroupProcessor(name), factory_(factory) {}
+
+private:
+    void Init(const std::string& path, std::optional<std::size_t> parallelId) override {
+        if (!processors_.empty()) {
+            return;
+        }
+        for (int i = 0; i < N; i++) {
+            auto processor = factory_();
+            processor->Init(path, std::make_optional(i));
+            processors_.push_back(std::move(processor));
+        }
+    }
+
+    Status Execute(ProcessContext& ctx) override {
+
+        std::vector<std::future<AsyncResult>> futures;
+
+        for (int i = 0; i < processors_.size(); i++) {
+            futures.emplace_back(std::async(std::launch::async, [&ctx, i, processor = processors_[i].get()]() {
+                data_parallel_detail::AutoSwitchParallelId<DTYPE> switcher(i);
+                return AsyncResult(processor->GetName(), processor->Process(ctx));
+            }));
+        }
+
+        Status overall = Status::OK;
+        for (auto& fut : futures) {
+            auto ret = fut.get();
+            if (ret.status != Status::OK) {
+                overall = ret.status;
+            }
+        }
+        return overall;
+    }
+
+private:
+    ProcessorFactory factory_;
+};
+
+template<typename DTYPE, uint32_t N>
+struct DataRaceProcessor : GroupProcessor{
+    DataRaceProcessor(const std::string& name, ProcessorFactory factory)
+    : GroupProcessor(name), factory_(factory) {}
+
+private:
+    void Init(const std::string& path, std::optional<std::size_t> parallelId) override {
+        if (!processors_.empty()) {
+            return;
+        }
+        for (int i = 0; i < N; i++) {
+            auto processor = factory_();
+            processor->Init(path, std::make_optional(i));
+            processors_.push_back(std::move(processor));
+        }
+    }
+    Status Execute(ProcessContext& ctx) override {
+        std::vector<std::future<AsyncResult>> futures;
+        std::promise<Status> finalPromise;
+        auto finalFuture = finalPromise.get_future();
+
+        auto innerCtx = ProcessContext::CreateSubContext(ctx);
+
+        for (int i = 0; i < processors_.size(); i++) {
+            futures.emplace_back(std::async(std::launch::async, [&, i, processor = processors_[i].get()]() {
+                data_parallel_detail::AutoSwitchParallelId<DTYPE> switcher(i);
+                Status status = processor->Process(innerCtx);
+                if (status == Status::OK) {
+                    if (innerCtx.TryStop()) {
+                        finalPromise.set_value(status);
+                    }
+                }
+                return AsyncResult(processor->GetName(), status);
+            }));
+        }
+
+        Status overall = finalFuture.get();
+        innerCtx.Stop();
+
+        for (auto& fut : futures) {
+            auto ret = fut.get();
+        }
+        return overall;
+    }
+
+private:
+    ProcessorFactory factory_;
+};
+
+////////////////////////////////////////////////////////////////////
 
 // Processor 调度器
 struct Scheduler {
     Scheduler(std::unique_ptr<Processor> rootProcessor)
     : rootProcessor_(std::move(rootProcessor)) {
-        rootProcessor_->UpdatePath("root");
-        rootProcessor_->Init();
+        rootProcessor_->Init("root", std::nullopt);
     }
 
     Status Run(DataContext& dataCtx) {
@@ -322,6 +443,10 @@ std::unique_ptr<Processor> MakeGroupProcessor(const std::string& name, PROCESSOR
     return processor;
 }
 
+template<template <typename, uint32_t> class DATA_PROCESSOR, typename DTYPE, uint32_t N>
+std::unique_ptr<Processor> MakeDataGroupProcessor(const std::string& name, ProcessorFactory factory) {
+    return std::make_unique<DATA_PROCESSOR<DTYPE, N>>(name, factory);
+}
 
 ////////////////////////////////////////////////////////////////////
 
@@ -331,6 +456,8 @@ std::unique_ptr<Processor> MakeGroupProcessor(const std::string& name, PROCESSOR
 #define SEQUENCE(...) MakeGroupProcessor<SequentialProcessor>("sequential", __VA_ARGS__)
 #define PARALLEL(...) MakeGroupProcessor<ParallelProcessor>("parallel", __VA_ARGS__)
 #define RACE(...)     MakeGroupProcessor<RaceProcessor>("race", __VA_ARGS__)
+#define DATA_PARALLEL(DTYPE, N, ...) MakeDataGroupProcessor<DataParallelProcessor, DTYPE, N>("data_parallel", [&]() { return __VA_ARGS__; })
+#define DATA_RACE(DTYPE, N, ...) MakeDataGroupProcessor<DataRaceProcessor, DTYPE, N>("data_race", [&]() { return __VA_ARGS__; })
 
 #define SCHEDULE(...) Scheduler(__VA_ARGS__)
 
@@ -381,6 +508,37 @@ struct MockAlgo7 : MockAlgo {
     MockAlgo7() : MockAlgo(std::chrono::milliseconds(700)) {}
 };
 
+struct MyData : std::vector<int> {
+    using std::vector<int>::vector;
+};
+
+struct DataParallelReadAlgo {
+    void Init() {
+        std::cout << "DataParallelReadAlgo Init\n";
+    }
+
+    void Execute(DataContext& context) {
+        int instanceId = data_parallel_detail::GetParallelId<MyData>();
+        const auto& myDatas = *context.Fetch<MyData>();
+        std::cout << "DataParallelReadAlgo: access instance: " << instanceId << ", value: " << myDatas[instanceId] << "\n";
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+};
+
+struct DataParallelWriteAlgo {
+    void Init() {
+        std::cout << "DataParallelWriteAlgo Init\n";
+    }
+
+    void Execute(DataContext& context) {
+        int instanceId = data_parallel_detail::GetParallelId<MyData>();
+        auto& myDatas = *context.Fetch<MyData>();
+        std::cout << "DataParallelWriteAlgo: access instance: " << instanceId << ", value: " << myDatas[instanceId] << "\n";
+        myDatas[instanceId] *= 2;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+};
+
 ////////////////////////////////////////////////////////////////////
 
 TEST_CASE("Processor Test") {
@@ -403,6 +561,79 @@ TEST_CASE("Processor Test") {
     );
     
     DataContext dataCtx;
+    auto status = scheduler.Run(dataCtx);
+    REQUIRE(status == Status::OK);
+}
+
+TEST_CASE("DataParallelProcessor basic Test") {    
+    auto scheduler = SCHEDULE(
+        DATA_PARALLEL(MyData, 5, PROCESS(DataParallelReadAlgo))
+    );
+    
+    DataContext dataCtx;
+    dataCtx.Create<MyData>(1, 2, 3, 4, 5);
+
+    auto status = scheduler.Run(dataCtx);
+    REQUIRE(status == Status::OK);
+}
+
+TEST_CASE("DataParallelProcessor complex Test") {
+    auto scheduler = SCHEDULE(
+        SEQUENCE(
+            PROCESS(MockAlgo1),
+            DATA_PARALLEL(MyData, 3, 
+                SEQUENCE(
+                    PROCESS(MockAlgo2),
+                    PROCESS(DataParallelWriteAlgo),
+                    PROCESS(DataParallelReadAlgo)
+                )
+            ),
+            PROCESS(MockAlgo3)
+        )
+    );
+    
+    DataContext dataCtx;
+    dataCtx.Create<MyData>(1, 2, 3);
+
+    auto status = scheduler.Run(dataCtx);
+    REQUIRE(status == Status::OK);
+}
+
+TEST_CASE("DataRaceProcessor basic Test") {
+    auto scheduler = SCHEDULE(
+        DATA_RACE(MyData, 5, 
+            SEQUENCE(
+                PROCESS(DataParallelWriteAlgo),
+                PROCESS(DataParallelReadAlgo)
+            )
+        )
+    );
+    
+    DataContext dataCtx;
+    dataCtx.Create<MyData>(1, 2, 3, 4, 5);
+
+    auto status = scheduler.Run(dataCtx);
+    REQUIRE(status == Status::OK);
+}
+
+TEST_CASE("DataRaceProcessor complex Test") {
+    auto scheduler = SCHEDULE(
+        SEQUENCE(
+            PROCESS(MockAlgo1),
+            DATA_RACE(MyData, 3, 
+                SEQUENCE(
+                    PROCESS(MockAlgo2),
+                    PROCESS(DataParallelWriteAlgo),
+                    PROCESS(DataParallelReadAlgo)
+                )
+            ),
+            PROCESS(MockAlgo3)
+        )
+    );
+
+    DataContext dataCtx;
+    dataCtx.Create<MyData>(1, 2, 3);
+
     auto status = scheduler.Run(dataCtx);
     REQUIRE(status == Status::OK);
 }
