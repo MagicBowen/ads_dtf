@@ -9,19 +9,19 @@
 #include <typeindex>
 #include <optional>
 #include <mutex>
+#include <shared_mutex>
 #include <chrono>
 #include <string>
 #include <any>
 
 ////////////////////////////////////////////////////////////////////
-
 // 数据上下文，支持具体的算法类进行数据存取
 struct DataContext {
     template<typename T>
     T* Fetch() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        auto it = data_map_.find(typeid(T));
-        if (it == data_map_.end()) {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        auto it = dataRepo_.find(typeid(T));
+        if (it == dataRepo_.end()) {
             return nullptr;
         }
         return std::any_cast<T>(&it->second);
@@ -29,18 +29,18 @@ struct DataContext {
 
     template<typename T, typename ...Args>
     T* Create(Args&& ...args) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        auto it = data_map_.find(typeid(T));
-        if (it != data_map_.end()) {
+        std::unique_lock<std::shared_mutex> lock(mutex_);
+        auto it = dataRepo_.find(typeid(T));
+        if (it != dataRepo_.end()) {
             return nullptr;
         }
-        data_map_[typeid(T)] = T{std::forward<Args>(args)...};
-        return std::any_cast<T>(&data_map_[typeid(T)]);
+        dataRepo_.emplace(typeid(T), T{std::forward<Args>(args)...});
+        return std::any_cast<T>(&dataRepo_[typeid(T)]);
     }
 
 private:
-    std::unordered_map<std::type_index, std::any> data_map_;
-    mutable std::mutex mutex_;
+    std::unordered_map<std::type_index, std::any> dataRepo_;
+    std::shared_mutex mutex_;
 };
 
 // 业务格式各样的算法类满足如下原型
