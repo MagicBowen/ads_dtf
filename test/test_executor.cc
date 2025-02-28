@@ -38,6 +38,17 @@ struct DataContext {
         return std::any_cast<T>(&dataRepo_[typeid(T)]);
     }
 
+    template<typename VISITOR>
+    std::size_t Travel(VISITOR&& visitor) {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        std::size_t count = 0;
+        for (auto& [type, data] : dataRepo_) {
+            std::forward<VISITOR>(visitor)(type, data);
+            count++;
+        }
+        return count;
+    }
+
 private:
     std::unordered_map<std::type_index, std::any> dataRepo_;
     std::shared_mutex mutex_;
