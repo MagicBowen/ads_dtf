@@ -316,8 +316,8 @@ namespace data_parallel_detail {
 using ProcessorFactory = std::function<std::unique_ptr<Processor>()>;
 
 template<typename DTYPE, uint32_t N>
-struct DataParallelProcessor : GroupProcessor{
-    DataParallelProcessor(const std::string& name, ProcessorFactory factory)
+struct DataGroupProcessor : GroupProcessor {
+    DataGroupProcessor(const std::string& name, ProcessorFactory factory)
     : GroupProcessor(name), factory_(factory) {}
 
 private:
@@ -325,12 +325,24 @@ private:
         if (!processors_.empty()) {
             return;
         }
+        Processor::Init(path, parallelId);
         for (int i = 0; i < N; i++) {
             auto processor = factory_();
-            processor->Init(path, std::make_optional(i));
+            processor->Init(name_, std::make_optional(i));
             processors_.push_back(std::move(processor));
         }
     }
+
+private:
+    ProcessorFactory factory_;
+};
+
+template<typename DTYPE, uint32_t N>
+struct DataParallelProcessor : DataGroupProcessor<DTYPE, N> {
+    using DataGroupProcessor<DTYPE, N>::DataGroupProcessor;
+
+private:
+    using DataGroupProcessor<DTYPE, N>::processors_;
 
     Status Execute(ProcessContext& ctx) override {
 
@@ -352,27 +364,15 @@ private:
         }
         return overall;
     }
-
-private:
-    ProcessorFactory factory_;
 };
 
 template<typename DTYPE, uint32_t N>
-struct DataRaceProcessor : GroupProcessor{
-    DataRaceProcessor(const std::string& name, ProcessorFactory factory)
-    : GroupProcessor(name), factory_(factory) {}
+struct DataRaceProcessor : DataGroupProcessor<DTYPE, N> {
+    using DataGroupProcessor<DTYPE, N>::DataGroupProcessor;
 
 private:
-    void Init(const std::string& path, std::optional<std::size_t> parallelId) override {
-        if (!processors_.empty()) {
-            return;
-        }
-        for (int i = 0; i < N; i++) {
-            auto processor = factory_();
-            processor->Init(path, std::make_optional(i));
-            processors_.push_back(std::move(processor));
-        }
-    }
+    using DataGroupProcessor<DTYPE, N>::processors_;
+
     Status Execute(ProcessContext& ctx) override {
         std::vector<std::future<AsyncResult>> futures;
         std::promise<Status> finalPromise;
@@ -401,9 +401,6 @@ private:
         }
         return overall;
     }
-
-private:
-    ProcessorFactory factory_;
 };
 
 ////////////////////////////////////////////////////////////////////
