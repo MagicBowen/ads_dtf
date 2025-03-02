@@ -171,9 +171,18 @@ struct ProcessorInfo {
     ProcessorInfo(const std::string& name, ProcessorId id)
     : name{name}, id{id} {}
 
+    std::string ToString() const {
+        return name + " [" + id.ToString() + "]";
+    }
+
     const std::string name;
     const ProcessorId id;
 };
+
+std::ostream& operator<<(std::ostream& os, const ProcessorInfo& processInfo) {
+    os << processInfo.ToString();
+    return os;
+}
 
 ////////////////////////////////////////////////////////////////////
 
@@ -213,12 +222,15 @@ struct ProcessTracker {
 struct ConsoleTracker : ProcessTracker {
     void TrackEnter(const ProcessorInfo& info) override {
         std::lock_guard<std::mutex> lock(mutex_);
-        std::cout << "Processor " << info.name << " [" << info.id.ToString() << "] enter..." << "\n";
+        if (info.id == ProcessorId::Root()) {
+            std::cout << "\n============== Schedule Start =============\n";
+        } 
+        std::cout << info << " enter..." << "\n";
     }
 
     void TrackExit(const ProcessorInfo& info, Status status) override {
         std::lock_guard<std::mutex> lock(mutex_);
-        std::cout << "Processor " << info.name << " [" << info.id.ToString() << "] exit with status: " << status << "!" << "\n";
+        std::cout << info << " exit with status: " << status << "!" << "\n";
     }
 
 private:
@@ -244,7 +256,7 @@ struct TimingTracker : ProcessTracker {
 
     void Dump() const override {
         std::lock_guard<std::mutex> lock(mutex_);
-        std::cout << "\n===== Processor Timing Statistics =====\n";
+        std::cout << "\n======= Processor Timing Statistics =======\n";
         
         ProcessorId rootId = ProcessorId::Root();
         if (timingData_.find(rootId) == timingData_.end()) {
@@ -431,7 +443,7 @@ struct GroupProcessor : Processor {
 private:
     void Init(const ProcessorInfo& parentInfo, uint32_t childIndex) override {
         Processor::Init(parentInfo, childIndex);
-        
+
         for (uint32_t i = 0; i < processors_.size(); ++i) {
             processors_[i]->Init(ProcessorInfo{name_, id_}, i + 1);
         }
@@ -684,12 +696,9 @@ struct Scheduler {
     }
 
     Status Run(DataContext& dataCtx) {
-        std::cout << "........................Scheduler is running........................\n";
         ProcessContext processCtx{dataCtx};
         processCtx.SetTracker(&tracker_);
-        auto ret = rootProcessor_->Process(processCtx);
-        std::cout << "........................Scheduler is finished with status: " << ret << ".......\n";
-        return ret;
+        return rootProcessor_->Process(processCtx);
     }
 
     void AddTracker(std::unique_ptr<ProcessTracker> tracker) {
