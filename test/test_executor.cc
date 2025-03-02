@@ -13,6 +13,7 @@
 #include <chrono>
 #include <string>
 #include <any>
+#include <random>
 
 ////////////////////////////////////////////////////////////////////
 // 数据上下文，支持具体的算法类进行数据存取
@@ -20,11 +21,11 @@ struct DataContext {
     template<typename T>
     T* Fetch() {
         std::shared_lock<std::shared_mutex> lock(mutex_);
-        auto it = dataRepo_.find(typeid(T));
-        if (it == dataRepo_.end()) {
-            return nullptr;
+        auto it = dataRepo_.find(std::type_index(typeid(T)));
+        if (it != dataRepo_.end()) {
+            return std::any_cast<std::shared_ptr<T>>(it->second).get();
         }
-        return std::any_cast<T>(&it->second);
+        return nullptr;
     }
 
     template<typename T, typename ...Args>
@@ -34,16 +35,18 @@ struct DataContext {
         if (it != dataRepo_.end()) {
             return nullptr;
         }
-        dataRepo_.emplace(typeid(T), T{std::forward<Args>(args)...});
-        return std::any_cast<T>(&dataRepo_[typeid(T)]);
+        auto ptr = std::shared_ptr<T>(new T{std::forward<Args>(args)...});
+        dataRepo_[std::type_index(typeid(T))] = ptr;
+        return ptr.get();
     }
 
-    template<typename VISITOR>
+    template<typename T, typename VISITOR>
     std::size_t Travel(VISITOR&& visitor) {
         std::shared_lock<std::shared_mutex> lock(mutex_);
         std::size_t count = 0;
-        for (auto& [type, data] : dataRepo_) {
-            std::forward<VISITOR>(visitor)(type, data);
+        for (auto& [type, item] : dataRepo_) {
+            auto dataPtr = std::any_cast<std::shared_ptr<T>>(item).get();
+            std::forward<VISITOR>(visitor)(type, *dataPtr);
             count++;
         }
         return count;
@@ -51,7 +54,7 @@ struct DataContext {
 
 private:
     std::unordered_map<std::type_index, std::any> dataRepo_;
-    std::shared_mutex mutex_;
+    mutable std::shared_mutex mutex_;
 };
 
 // 业务格式各样的算法类满足如下原型
@@ -471,79 +474,138 @@ std::unique_ptr<Processor> MakeDataGroupProcessor(const std::string& name, Proce
 
 ////////////////////////////////////////////////////////////////////
 
+struct Tracker {
+    void Track(const std::string& key, const std::any& value) {
+        std::unique_lock<std::shared_mutex> lock(mutex_);
+        trackedData_.emplace_back(key, value);
+    }
+
+    bool HasKey(const std::string& key) const {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        return std::any_of(trackedData_.begin(), trackedData_.end(), [&](const auto& pair) {
+            return pair.first == key;
+        });
+    }
+
+    template<typename T>
+    bool HasValue(const std::string& key, const T& value) const {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        return std::any_of(trackedData_.begin(), trackedData_.end(), [&](const auto& pair) {
+            return pair.first == key && std::any_cast<T>(pair.second) == value;
+        });
+    }
+
+    bool KeyAt(const std::string& key, std::size_t pos) const {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        auto it = std::find_if(trackedData_.begin(), trackedData_.end(), [&](const auto& pair) {
+            return pair.first == key;
+        });
+        return it != trackedData_.end() && std::distance(trackedData_.begin(), it) == pos;
+    }
+
+    std::size_t Size() const {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        return trackedData_.size();
+    }
+
+    template<typename T>
+    void Print() const {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        std::for_each(trackedData_.begin(), trackedData_.end(), [](const auto& pair) {
+            std::cout << pair.first << ": " << std::any_cast<T>(pair.second) << "\n";
+        });
+    }
+
+private:
+    std::vector<std::pair<std::string, std::any>> trackedData_;
+    mutable std::shared_mutex mutex_;
+};
+
 // 模拟业务算法
 struct MockAlgo {
-    MockAlgo(std::chrono::milliseconds sleepTime = std::chrono::milliseconds(0))
-    : sleepTime_{sleepTime} 
+    MockAlgo(const std::string& name, 
+        std::chrono::milliseconds sleepTime = std::chrono::milliseconds(0))
+    : name_{name}, sleepTime_{sleepTime} 
     {}
 
     void Init() {
+        std::cout << name_ << " Init\n";
     }
 
     void Execute(DataContext& context) {
         std::this_thread::sleep_for(sleepTime_);
+        
+        auto tracker = context.Fetch<Tracker>();
+        if (tracker) {
+            tracker->Track(name_, 0);
+        }
     }
 
 private:
     std::chrono::milliseconds sleepTime_;
+    std::string name_;
 };
 
-struct MockAlgo1 : MockAlgo {
-    MockAlgo1() : MockAlgo(std::chrono::milliseconds(100)) {}
-};
+#define DEFINE_MOCK_ALGO(name, sleepTime) \
+struct name : MockAlgo { \
+    name() : MockAlgo(#name, std::chrono::milliseconds(sleepTime)) {} \
+}
 
-struct MockAlgo2 : MockAlgo {
-    MockAlgo2() : MockAlgo(std::chrono::milliseconds(200)) {}
-};
+DEFINE_MOCK_ALGO(MockAlgo1, 100);
+DEFINE_MOCK_ALGO(MockAlgo2, 200);
+DEFINE_MOCK_ALGO(MockAlgo3, 300);
+DEFINE_MOCK_ALGO(MockAlgo4, 400);
+DEFINE_MOCK_ALGO(MockAlgo5, 500);
+DEFINE_MOCK_ALGO(MockAlgo6, 600);
+DEFINE_MOCK_ALGO(MockAlgo7, 700);
 
-struct MockAlgo3 : MockAlgo {
-    MockAlgo3() : MockAlgo(std::chrono::milliseconds(300)) {}
-};
+////////////////////////////////////////////////////////////////////
 
-struct MockAlgo4 : MockAlgo {
-    MockAlgo4() : MockAlgo(std::chrono::milliseconds(400)) {}
-};
-
-struct MockAlgo5 : MockAlgo {
-    MockAlgo5() : MockAlgo(std::chrono::milliseconds(500)) {}
-};
-
-struct MockAlgo6 : MockAlgo {
-    MockAlgo6() : MockAlgo(std::chrono::milliseconds(600)) {}
-};
-
-struct MockAlgo7 : MockAlgo {
-    MockAlgo7() : MockAlgo(std::chrono::milliseconds(700)) {}
-};
-
-struct MyData : std::vector<int> {
+struct MyDatas : std::vector<int> {
     using std::vector<int>::vector;
 };
 
-struct DataParallelReadAlgo {
+namespace  {
+    std::random_device RD;
+    std::mt19937 GEN(RD());
+    std::uniform_int_distribution<> DISTR(1, 1000);
+}
+
+struct DataReadAlgo {
     void Init() {
-        std::cout << "DataParallelReadAlgo Init\n";
+        std::cout << "DataReadAlgo Init\n";
     }
 
     void Execute(DataContext& context) {
-        int instanceId = data_parallel_detail::GetParallelId<MyData>();
-        const auto& myDatas = *context.Fetch<MyData>();
-        std::cout << "DataParallelReadAlgo: access instance: " << instanceId << ", value: " << myDatas[instanceId] << "\n";
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(DISTR(GEN)));
+
+        int instanceId = data_parallel_detail::GetParallelId<MyDatas>();
+        auto& myDatas = *context.Fetch<MyDatas>();
+
+        auto tracker = context.Fetch<Tracker>();
+        if (tracker) {
+            tracker->Track("DataReadAlgo", myDatas[instanceId]);
+        }
     }
 };
 
-struct DataParallelWriteAlgo {
+struct DataWriteAlgo {
     void Init() {
-        std::cout << "DataParallelWriteAlgo Init\n";
+        std::cout << "DataWriteAlgo Init\n";
     }
 
     void Execute(DataContext& context) {
-        int instanceId = data_parallel_detail::GetParallelId<MyData>();
-        auto& myDatas = *context.Fetch<MyData>();
-        std::cout << "DataParallelWriteAlgo: access instance: " << instanceId << ", value: " << myDatas[instanceId] << "\n";
+        std::this_thread::sleep_for(std::chrono::milliseconds(DISTR(GEN)));
+        
+        int instanceId = data_parallel_detail::GetParallelId<MyDatas>();
+        auto& myDatas = *context.Fetch<MyDatas>();
+        
+        auto tracker = context.Fetch<Tracker>();
+        if (tracker) {
+            tracker->Track("DataWriteAlgo", myDatas[instanceId]);
+        }
+
         myDatas[instanceId] *= 2;
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 };
 
@@ -569,31 +631,52 @@ TEST_CASE("Processor Test") {
     );
     
     DataContext dataCtx;
+    dataCtx.Create<Tracker>();
+
     auto status = scheduler.Run(dataCtx);
     REQUIRE(status == Status::OK);
+
+    auto tracker = dataCtx.Fetch<Tracker>();
+    REQUIRE(tracker->Size() == 6);
+    REQUIRE(tracker->KeyAt("MockAlgo1", 0));
+    REQUIRE(tracker->KeyAt("MockAlgo2", 1));
+    REQUIRE(tracker->KeyAt("MockAlgo3", 2));
+    REQUIRE(tracker->KeyAt("MockAlgo7", 5));
+
+    REQUIRE(tracker->HasKey("MockAlgo4"));
+    REQUIRE(tracker->HasKey("MockAlgo5"));
 }
 
 TEST_CASE("DataParallelProcessor basic Test") {    
     auto scheduler = SCHEDULE(
-        DATA_PARALLEL(MyData, 5, PROCESS(DataParallelReadAlgo))
+        DATA_PARALLEL(MyDatas, 5, PROCESS(DataReadAlgo))
     );
     
     DataContext dataCtx;
-    dataCtx.Create<MyData>(1, 2, 3, 4, 5);
+    dataCtx.Create<Tracker>();
+    dataCtx.Create<MyDatas>(1, 2, 3, 4, 5);
 
     auto status = scheduler.Run(dataCtx);
     REQUIRE(status == Status::OK);
+
+    auto tracker = dataCtx.Fetch<Tracker>();
+    REQUIRE(tracker->Size() == 5);
+    REQUIRE(tracker->HasValue("DataReadAlgo", 1));
+    REQUIRE(tracker->HasValue("DataReadAlgo", 2));
+    REQUIRE(tracker->HasValue("DataReadAlgo", 3));
+    REQUIRE(tracker->HasValue("DataReadAlgo", 4));
+    REQUIRE(tracker->HasValue("DataReadAlgo", 5));
 }
 
 TEST_CASE("DataParallelProcessor complex Test") {
     auto scheduler = SCHEDULE(
         SEQUENCE(
             PROCESS(MockAlgo1),
-            DATA_PARALLEL(MyData, 3, 
+            DATA_PARALLEL(MyDatas, 3, 
                 SEQUENCE(
                     PROCESS(MockAlgo2),
-                    PROCESS(DataParallelWriteAlgo),
-                    PROCESS(DataParallelReadAlgo)
+                    PROCESS(DataWriteAlgo),
+                    PROCESS(DataReadAlgo)
                 )
             ),
             PROCESS(MockAlgo3)
@@ -601,38 +684,67 @@ TEST_CASE("DataParallelProcessor complex Test") {
     );
     
     DataContext dataCtx;
-    dataCtx.Create<MyData>(1, 2, 3);
+    dataCtx.Create<Tracker>();
+    dataCtx.Create<MyDatas>(1, 2, 3);
 
     auto status = scheduler.Run(dataCtx);
     REQUIRE(status == Status::OK);
+
+    auto tracker = dataCtx.Fetch<Tracker>();
+    REQUIRE(tracker->Size() == 11);
+    REQUIRE(tracker->KeyAt("MockAlgo1", 0));
+    REQUIRE(tracker->KeyAt("MockAlgo3", 10));
+
+    REQUIRE(tracker->HasKey("MockAlgo2"));
+
+    REQUIRE(tracker->HasValue("DataWriteAlgo", 1));
+    REQUIRE(tracker->HasValue("DataWriteAlgo", 2));
+    REQUIRE(tracker->HasValue("DataWriteAlgo", 3));
+   
+    REQUIRE(tracker->HasValue("DataReadAlgo", 2));
+    REQUIRE(tracker->HasValue("DataReadAlgo", 4));
+    REQUIRE(tracker->HasValue("DataReadAlgo", 6));
 }
 
 TEST_CASE("DataRaceProcessor basic Test") {
     auto scheduler = SCHEDULE(
-        DATA_RACE(MyData, 5, 
+        DATA_RACE(MyDatas, 5, 
             SEQUENCE(
-                PROCESS(DataParallelWriteAlgo),
-                PROCESS(DataParallelReadAlgo)
+                PROCESS(DataWriteAlgo),
+                PROCESS(DataReadAlgo)
             )
         )
     );
     
     DataContext dataCtx;
-    dataCtx.Create<MyData>(1, 2, 3, 4, 5);
+    dataCtx.Create<Tracker>();
+    dataCtx.Create<MyDatas>(1, 2, 3, 4, 5);
 
     auto status = scheduler.Run(dataCtx);
     REQUIRE(status == Status::OK);
+
+    auto tracker = dataCtx.Fetch<Tracker>();
+    REQUIRE(tracker->Size() > 5);
+    REQUIRE(tracker->Size() < 10);
+
+    REQUIRE(tracker->HasValue("DataWriteAlgo", 1));
+    REQUIRE(tracker->HasValue("DataWriteAlgo", 2));
+    REQUIRE(tracker->HasValue("DataWriteAlgo", 3));
+    REQUIRE(tracker->HasValue("DataWriteAlgo", 4));
+    REQUIRE(tracker->HasValue("DataWriteAlgo", 5));
+
+    REQUIRE(tracker->HasKey("DataReadAlgo"));
 }
 
 TEST_CASE("DataRaceProcessor complex Test") {
     auto scheduler = SCHEDULE(
         SEQUENCE(
             PROCESS(MockAlgo1),
-            DATA_RACE(MyData, 3, 
+            DATA_RACE(MyDatas, 3, 
                 SEQUENCE(
                     PROCESS(MockAlgo2),
-                    PROCESS(DataParallelWriteAlgo),
-                    PROCESS(DataParallelReadAlgo)
+                    PROCESS(DataWriteAlgo),
+                    PROCESS(DataReadAlgo)
                 )
             ),
             PROCESS(MockAlgo3)
@@ -640,8 +752,22 @@ TEST_CASE("DataRaceProcessor complex Test") {
     );
 
     DataContext dataCtx;
-    dataCtx.Create<MyData>(1, 2, 3);
+    dataCtx.Create<Tracker>();
+    dataCtx.Create<MyDatas>(1, 2, 3);
 
     auto status = scheduler.Run(dataCtx);
     REQUIRE(status == Status::OK);
+
+    auto tracker = dataCtx.Fetch<Tracker>();
+    tracker->Print<int>();
+
+    REQUIRE(tracker->Size() > 6);
+    REQUIRE(tracker->Size() <= 11);
+
+    REQUIRE(tracker->KeyAt("MockAlgo1", 0));
+    REQUIRE(tracker->KeyAt("MockAlgo3", tracker->Size() - 1));
+
+    REQUIRE(tracker->HasKey("MockAlgo2")); 
+    REQUIRE(tracker->HasKey("DataWriteAlgo")); 
+    REQUIRE(tracker->HasKey("DataReadAlgo")); 
 }
