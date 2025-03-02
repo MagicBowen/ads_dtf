@@ -66,6 +66,116 @@ private:
 // };
 
 ////////////////////////////////////////////////////////////////////
+struct ProcessorId {
+    static constexpr uint32_t MAX_DEPTH = 8;       // 最多支持8层嵌套
+    static constexpr uint32_t BITS_PER_LEVEL = 8;  // 每层使用8位，每层最多支持255个处理器
+    static constexpr uint64_t LEVEL_MASK = 0xFF;   // 每层的掩码
+    
+    ProcessorId() : value_(0) {}
+    
+    explicit ProcessorId(uint64_t value) : value_(value) {}
+    
+    static ProcessorId CreateChild(const ProcessorId& parent, uint32_t childIndex) {
+        uint64_t parentValue = parent.value_;
+        uint32_t depth = GetDepthFromValue(parentValue);
+        
+        if (depth >= MAX_DEPTH) {
+            return parent;
+        }
+        
+        uint32_t newDepth = depth + 1;
+        uint64_t shiftAmount = (newDepth - 1) * BITS_PER_LEVEL;
+        uint64_t newValue = parentValue | ((childIndex & LEVEL_MASK) << shiftAmount);
+        
+        newValue = (newValue & ~(LEVEL_MASK << 56)) | (static_cast<uint64_t>(newDepth) << 56);
+        return ProcessorId(newValue);
+    }
+    
+    static ProcessorId Root() {
+        // Root 节点的深度为 1，ID值为 1
+        return ProcessorId((static_cast<uint64_t>(1) << 56) | 1);
+    }
+    
+    ProcessorId GetParent() const {
+        uint32_t depth = GetDepth();
+        if (depth <= 1) {
+             // 根ID没有父ID
+            return ProcessorId();
+        }
+        
+        uint64_t parentValue = value_;
+        uint64_t clearMask = ~(LEVEL_MASK << ((depth - 1) * BITS_PER_LEVEL));
+        parentValue &= clearMask;
+        
+        parentValue = (parentValue & ~(LEVEL_MASK << 56)) | (static_cast<uint64_t>(depth - 1) << 56);
+        return ProcessorId(parentValue);
+    }
+    
+    uint32_t GetDepth() const {
+        return GetDepthFromValue(value_);
+    }
+    
+    uint64_t GetValue() const {
+        return value_;
+    }
+    
+    uint8_t GetLevelValue(uint32_t level) const {
+        if (level >= GetDepth()) {
+            return 0;
+        }
+        
+        uint32_t shift = level * BITS_PER_LEVEL;
+        return (value_ >> shift) & LEVEL_MASK;
+    }
+    
+    std::string ToString() const {
+        uint32_t depth = GetDepth();
+        if (depth == 0) return "null";
+        
+        std::ostringstream oss;
+        oss << static_cast<int>(GetLevelValue(0));
+        for (uint32_t i = 1; i < depth; ++i) {
+            oss << "." << static_cast<int>(GetLevelValue(i));
+        }
+        return oss.str();
+    }
+    
+    bool operator==(const ProcessorId& other) const {
+        return value_ == other.value_;
+    }
+    
+    bool operator!=(const ProcessorId& other) const {
+        return value_ != other.value_;
+    }
+    
+private:
+    static uint32_t GetDepthFromValue(uint64_t value) {
+        return (value >> 56) & LEVEL_MASK;
+    }
+    
+private:
+    // 单一的64位值存储整个ID
+    uint64_t value_;
+};
+
+namespace std {
+    template<>
+    struct hash<ProcessorId> {
+        size_t operator()(const ProcessorId& id) const {
+            return std::hash<uint64_t>{}(id.GetValue());
+        }
+    };
+}
+
+struct ProcessorInfo {
+    ProcessorInfo(const std::string& name, ProcessorId id)
+    : name{name}, id{id} {}
+
+    const std::string name;
+    const ProcessorId id;
+};
+
+////////////////////////////////////////////////////////////////////
 
 // 执行器返回值
 enum class Status {
@@ -92,10 +202,100 @@ std::ostream& operator<<(std::ostream& os, Status status) {
     return os;
 }
 
+////////////////////////////////////////////////////////////////////
+struct ProcessTracker {
+    virtual void TrackEnter(const ProcessorInfo&) = 0;
+    virtual void TrackExit(const ProcessorInfo&, Status) = 0;
+    virtual void Dump() const {}
+    virtual ~ProcessTracker() = default;
+};
+
+struct ConsoleTracker : ProcessTracker {
+    void TrackEnter(const ProcessorInfo& info) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::cout << "Processor " << info.name << " [" << info.id.ToString() << "] enter..." << "\n";
+    }
+
+    void TrackExit(const ProcessorInfo& info, Status status) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::cout << "Processor " << info.name << " [" << info.id.ToString() << "] exit with status: " << status << "!" << "\n";
+    }
+
+private:
+    std::mutex mutex_;
+};
+
+struct TimingTracker : ProcessTracker {
+    void TrackEnter(const ProcessorInfo& info) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto now = std::chrono::high_resolution_clock::now();
+        timingData_[info.id] = std::make_pair(now, std::chrono::nanoseconds(0));
+    }
+
+    void TrackExit(const ProcessorInfo& info, Status status) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto now = std::chrono::high_resolution_clock::now();
+        auto it = timingData_.find(info.id);
+        if (it != timingData_.end()) {
+            auto duration = now - it->second.first;
+            it->second.second = std::chrono::duration_cast<std::chrono::nanoseconds>(duration);
+        }
+    }
+
+    void Dump() const override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::cout << "\n===== Processor Timing Statistics =====\n";
+        
+        ProcessorId rootId = ProcessorId::Root();
+        if (timingData_.find(rootId) == timingData_.end()) {
+            std::cout << "No timing data available!\n";
+            return;
+        } 
+        DumpProcessor(rootId, 0);
+    }
+
+private:
+    void DumpProcessor(const ProcessorId& id, int level) const {
+        auto timingIt = timingData_.find(id);
+
+        if (timingIt == timingData_.end()) {
+            std::cout << "No timing data find for id << " << id.ToString() << " in level " << level << "!\n";
+            return;
+        }
+
+        double ms = timingIt->second.second.count() / 1'000'000.0;
+        std::string indent(level * 2, ' ');
+        std::cout << indent << "[" << id.ToString() << "]: " << ms << " ms\n";
+        
+        std::vector<ProcessorId> children;
+        for (const auto& [childId, _] : timingData_) {
+            if (childId.GetParent() == id) {
+                children.push_back(childId);
+            }
+        }
+
+        uint32_t childLevel = id.GetDepth();
+        std::sort(children.begin(), children.end(), [childLevel](const ProcessorId& a, const ProcessorId& b) {
+            return a.GetLevelValue(childLevel) < b.GetLevelValue(childLevel);
+        });
+        
+        for (const auto& childId : children) {
+            DumpProcessor(childId, level + 1);
+        }
+    }
+
+private:
+    mutable std::mutex mutex_;
+    using TimingData = std::pair<std::chrono::high_resolution_clock::time_point, std::chrono::nanoseconds>;
+    std::unordered_map<ProcessorId, TimingData> timingData_;
+};
+
+////////////////////////////////////////////////////////////////////
+
 // 执行器的上下文
 struct ProcessContext {
     static ProcessContext CreateSubContext(ProcessContext& parentCtx) {
-        return ProcessContext{parentCtx.GetDataContext(), &parentCtx.stopFlag_};
+        return ProcessContext(parentCtx.GetDataContext(), &parentCtx.stopFlag_, parentCtx.tracker_);
     }
 
     ProcessContext(DataContext& dataCtx)
@@ -121,17 +321,35 @@ struct ProcessContext {
         return stopFlag_.load();
     }
 
+    void SetTracker(ProcessTracker* tracker) {
+        tracker_ = tracker;
+    }
+
+    void EnterProcess(const ProcessorInfo& info) {
+        if (tracker_) {
+            tracker_->TrackEnter(info);
+        }
+    }
+
+    void ExitProcess(const ProcessorInfo& info, Status status) {
+        if (tracker_) {
+            tracker_->TrackExit(info, status);
+        }
+    }
+
     DataContext& GetDataContext() {
         return dataCtx_;
     }
+
 private:
-    ProcessContext(DataContext& dataCtx, const std::atomic<bool>* parentStopFlag)
-    : dataCtx_(dataCtx), parentStopFlag_(parentStopFlag) {}
+    ProcessContext(DataContext& dataCtx, const std::atomic<bool>* parentStopFlag, ProcessTracker* tracker)
+    : dataCtx_(dataCtx), parentStopFlag_(parentStopFlag), tracker_(tracker) {}
 
 private:
     DataContext& dataCtx_;
     std::atomic<bool> stopFlag_{false};
     const std::atomic<bool>* parentStopFlag_{nullptr};
+    ProcessTracker* tracker_{nullptr};
 };
 
 ////////////////////////////////////////////////////////////////////
@@ -145,22 +363,31 @@ struct Processor {
         return name_;
     }
 
+    ProcessorId GetId() const {
+        return id_;
+    }
+
     Status Process(ProcessContext& ctx) {
+        ProcessorInfo info{name_, id_};
+
+        ctx.EnterProcess(info);
+
         if (ctx.IsStopped()) {
-            std::cout << name_ << " is skiped!\n";
+            ctx.ExitProcess(info, Status::CANCELLED);
             return Status::CANCELLED;
         }
-        std::cout << name_ << " is processing...\n";
         auto status = Execute(ctx);
-        std::cout << name_ << " is finished with status: " << status << "\n";
+        ctx.ExitProcess(info, status);
         return status;
     }
     
-    virtual void Init(const std::string& path, std::optional<std::size_t> parallelId) {
-        name_ = path + "/" + name_;
-        if (parallelId) {
-            name_ += "[" + std::to_string(*parallelId) + "]";
+    virtual void Init(const ProcessorInfo& parentInfo, uint32_t childIndex) {
+        if (parentInfo.id == ProcessorId::Root() && childIndex == 0) {
+            id_ = ProcessorId::Root();
+        } else {
+            id_ = ProcessorId::CreateChild(parentInfo.id, childIndex);
         }
+        name_ = parentInfo.name + "/" + name_;
     }
 
     virtual ~Processor() = default;
@@ -170,6 +397,7 @@ private:
 
 protected:
     std::string name_;
+    ProcessorId id_{0};
 };
 
 // 基本执行器，对业务算法的适配
@@ -178,8 +406,8 @@ struct AlgoProcessor : Processor {
     using Processor::Processor;
 
 private:
-    void Init(const std::string& path, std::optional<std::size_t> parallelId) override {
-        Processor::Init(path, parallelId);
+    void Init(const ProcessorInfo& parentInfo, uint32_t childIndex) override {
+        Processor::Init(parentInfo, childIndex);
         algo_.Init();
     }
 
@@ -201,10 +429,11 @@ struct GroupProcessor : Processor {
     }
 
 private:
-    void Init(const std::string& path, std::optional<std::size_t> parallelId) override {
-        Processor::Init(path, parallelId);
-        for (auto& processor : processors_) {
-            processor->Init(name_, std::nullopt);
+    void Init(const ProcessorInfo& parentInfo, uint32_t childIndex) override {
+        Processor::Init(parentInfo, childIndex);
+        
+        for (uint32_t i = 0; i < processors_.size(); ++i) {
+            processors_[i]->Init(ProcessorInfo{name_, id_}, i + 1);
         }
     }
 
@@ -335,14 +564,15 @@ struct DataGroupProcessor : GroupProcessor {
     : GroupProcessor(name), factory_(factory) {}
 
 private:
-    void Init(const std::string& path, std::optional<std::size_t> parallelId) override {
+    void Init(const ProcessorInfo& parentInfo, uint32_t childIndex) override {
         if (!processors_.empty()) {
             return;
         }
-        Processor::Init(path, parallelId);
-        for (int i = 0; i < N; i++) {
+        Processor::Init(parentInfo, childIndex);
+
+        for (uint32_t i = 0; i < N; ++i) {
             auto processor = factory_();
-            processor->Init(name_, std::make_optional(i));
+            processor->Init(ProcessorInfo{name_, id_}, i + 1);
             processors_.push_back(std::move(processor));
         }
     }
@@ -418,24 +648,61 @@ private:
 };
 
 ////////////////////////////////////////////////////////////////////
+struct GroupTracker : ProcessTracker {
+    void AddTracker(std::unique_ptr<ProcessTracker> tracker) {
+        trackers_.emplace_back(std::move(tracker));
+    }
+
+    void Dump() const override {
+        for (auto& tracker : trackers_) {
+            tracker->Dump();
+        }
+    }
+
+private:
+    void TrackEnter(const ProcessorInfo& info) override {
+        for (auto& tracker : trackers_) {
+            tracker->TrackEnter(info);
+        }
+    }
+
+    void TrackExit(const ProcessorInfo& info, Status status) override {
+        for (auto& tracker : trackers_) {
+            tracker->TrackExit(info, status);
+        }
+    }
+
+private:
+    std::vector<std::unique_ptr<ProcessTracker>> trackers_;
+};
 
 // Processor 调度器
 struct Scheduler {
     Scheduler(std::unique_ptr<Processor> rootProcessor)
-    : rootProcessor_(std::move(rootProcessor)) {
-        rootProcessor_->Init("root", std::nullopt);
+    : rootProcessor_{std::move(rootProcessor)} {
+        rootProcessor_->Init(ProcessorInfo{"root", ProcessorId::Root()}, 0);
     }
 
     Status Run(DataContext& dataCtx) {
         std::cout << "........................Scheduler is running........................\n";
         ProcessContext processCtx{dataCtx};
+        processCtx.SetTracker(&tracker_);
         auto ret = rootProcessor_->Process(processCtx);
-        std::cout << "........................Scheduler is finished with status: " << ret << "........................\n";
+        std::cout << "........................Scheduler is finished with status: " << ret << ".......\n";
         return ret;
+    }
+
+    void AddTracker(std::unique_ptr<ProcessTracker> tracker) {
+        tracker_.AddTracker(std::move(tracker));
+    }
+
+    void Dump() const {
+        tracker_.Dump();
     }
 
 private:
     std::unique_ptr<Processor> rootProcessor_;
+    GroupTracker tracker_;
 };
 
 ////////////////////////////////////////////////////////////////////
@@ -474,7 +741,7 @@ std::unique_ptr<Processor> MakeDataGroupProcessor(const std::string& name, Proce
 
 ////////////////////////////////////////////////////////////////////
 
-struct Tracker {
+struct TestTracker {
     void Track(const std::string& key, const std::any& value) {
         std::unique_lock<std::shared_mutex> lock(mutex_);
         trackedData_.emplace_back(key, value);
@@ -529,13 +796,12 @@ struct MockAlgo {
     {}
 
     void Init() {
-        std::cout << name_ << " Init\n";
     }
 
     void Execute(DataContext& context) {
         std::this_thread::sleep_for(sleepTime_);
         
-        auto tracker = context.Fetch<Tracker>();
+        auto tracker = context.Fetch<TestTracker>();
         if (tracker) {
             tracker->Track(name_, 0);
         }
@@ -558,6 +824,7 @@ DEFINE_MOCK_ALGO(MockAlgo4, 400);
 DEFINE_MOCK_ALGO(MockAlgo5, 500);
 DEFINE_MOCK_ALGO(MockAlgo6, 600);
 DEFINE_MOCK_ALGO(MockAlgo7, 700);
+DEFINE_MOCK_ALGO(MockAlgo8, 800);
 
 ////////////////////////////////////////////////////////////////////
 
@@ -573,7 +840,6 @@ namespace  {
 
 struct DataReadAlgo {
     void Init() {
-        std::cout << "DataReadAlgo Init\n";
     }
 
     void Execute(DataContext& context) {
@@ -582,7 +848,7 @@ struct DataReadAlgo {
         int instanceId = data_parallel_detail::GetParallelId<MyDatas>();
         auto& myDatas = *context.Fetch<MyDatas>();
 
-        auto tracker = context.Fetch<Tracker>();
+        auto tracker = context.Fetch<TestTracker>();
         if (tracker) {
             tracker->Track("DataReadAlgo", myDatas[instanceId]);
         }
@@ -591,7 +857,6 @@ struct DataReadAlgo {
 
 struct DataWriteAlgo {
     void Init() {
-        std::cout << "DataWriteAlgo Init\n";
     }
 
     void Execute(DataContext& context) {
@@ -600,7 +865,7 @@ struct DataWriteAlgo {
         int instanceId = data_parallel_detail::GetParallelId<MyDatas>();
         auto& myDatas = *context.Fetch<MyDatas>();
         
-        auto tracker = context.Fetch<Tracker>();
+        auto tracker = context.Fetch<TestTracker>();
         if (tracker) {
             tracker->Track("DataWriteAlgo", myDatas[instanceId]);
         }
@@ -618,33 +883,42 @@ TEST_CASE("Processor Test") {
             PARALLEL(
                 PROCESS(MockAlgo2),
                 PROCESS(MockAlgo3),
-                RACE(
+                PARALLEL(
                     PROCESS(MockAlgo4),
-                    SEQUENCE(
+                    RACE(
                         PROCESS(MockAlgo5),
-                        PROCESS(MockAlgo6)
+                        SEQUENCE(
+                            PROCESS(MockAlgo6),
+                            PROCESS(MockAlgo7)
+                        )
                     )
                 )
             ),
-            PROCESS(MockAlgo7)
+            PROCESS(MockAlgo8)
         )
     );
     
     DataContext dataCtx;
-    dataCtx.Create<Tracker>();
+    dataCtx.Create<TestTracker>();
+
+    scheduler.AddTracker(std::make_unique<ConsoleTracker>());
+    scheduler.AddTracker(std::make_unique<TimingTracker>());
 
     auto status = scheduler.Run(dataCtx);
     REQUIRE(status == Status::OK);
 
-    auto tracker = dataCtx.Fetch<Tracker>();
-    REQUIRE(tracker->Size() == 6);
+    scheduler.Dump();
+
+    auto tracker = dataCtx.Fetch<TestTracker>();
+    REQUIRE(tracker->Size() == 7);
     REQUIRE(tracker->KeyAt("MockAlgo1", 0));
     REQUIRE(tracker->KeyAt("MockAlgo2", 1));
     REQUIRE(tracker->KeyAt("MockAlgo3", 2));
-    REQUIRE(tracker->KeyAt("MockAlgo7", 5));
+    REQUIRE(tracker->KeyAt("MockAlgo8", 6));
 
     REQUIRE(tracker->HasKey("MockAlgo4"));
     REQUIRE(tracker->HasKey("MockAlgo5"));
+    REQUIRE(tracker->HasKey("MockAlgo6"));
 }
 
 TEST_CASE("DataParallelProcessor basic Test") {    
@@ -653,13 +927,13 @@ TEST_CASE("DataParallelProcessor basic Test") {
     );
     
     DataContext dataCtx;
-    dataCtx.Create<Tracker>();
+    dataCtx.Create<TestTracker>();
     dataCtx.Create<MyDatas>(1, 2, 3, 4, 5);
 
     auto status = scheduler.Run(dataCtx);
     REQUIRE(status == Status::OK);
 
-    auto tracker = dataCtx.Fetch<Tracker>();
+    auto tracker = dataCtx.Fetch<TestTracker>();
     REQUIRE(tracker->Size() == 5);
     REQUIRE(tracker->HasValue("DataReadAlgo", 1));
     REQUIRE(tracker->HasValue("DataReadAlgo", 2));
@@ -684,13 +958,13 @@ TEST_CASE("DataParallelProcessor complex Test") {
     );
     
     DataContext dataCtx;
-    dataCtx.Create<Tracker>();
+    dataCtx.Create<TestTracker>();
     dataCtx.Create<MyDatas>(1, 2, 3);
 
     auto status = scheduler.Run(dataCtx);
     REQUIRE(status == Status::OK);
 
-    auto tracker = dataCtx.Fetch<Tracker>();
+    auto tracker = dataCtx.Fetch<TestTracker>();
     REQUIRE(tracker->Size() == 11);
     REQUIRE(tracker->KeyAt("MockAlgo1", 0));
     REQUIRE(tracker->KeyAt("MockAlgo3", 10));
@@ -717,15 +991,15 @@ TEST_CASE("DataRaceProcessor basic Test") {
     );
     
     DataContext dataCtx;
-    dataCtx.Create<Tracker>();
+    dataCtx.Create<TestTracker>();
     dataCtx.Create<MyDatas>(1, 2, 3, 4, 5);
 
     auto status = scheduler.Run(dataCtx);
     REQUIRE(status == Status::OK);
 
-    auto tracker = dataCtx.Fetch<Tracker>();
+    auto tracker = dataCtx.Fetch<TestTracker>();
     REQUIRE(tracker->Size() > 5);
-    REQUIRE(tracker->Size() < 10);
+    REQUIRE(tracker->Size() <= 10);
 
     REQUIRE(tracker->HasValue("DataWriteAlgo", 1));
     REQUIRE(tracker->HasValue("DataWriteAlgo", 2));
@@ -751,16 +1025,18 @@ TEST_CASE("DataRaceProcessor complex Test") {
         )
     );
 
+    scheduler.AddTracker(std::make_unique<TimingTracker>());
+
     DataContext dataCtx;
-    dataCtx.Create<Tracker>();
+    dataCtx.Create<TestTracker>();
     dataCtx.Create<MyDatas>(1, 2, 3);
 
     auto status = scheduler.Run(dataCtx);
     REQUIRE(status == Status::OK);
 
-    auto tracker = dataCtx.Fetch<Tracker>();
-    tracker->Print<int>();
+    scheduler.Dump();
 
+    auto tracker = dataCtx.Fetch<TestTracker>();
     REQUIRE(tracker->Size() > 6);
     REQUIRE(tracker->Size() <= 11);
 

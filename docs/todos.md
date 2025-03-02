@@ -3,3 +3,5 @@
 - [x]: add data parallel processor;
 - [x]: add data race processor;
 - [x]: init data processor by type and size;
+- [x]: optimize processor tag;
+- [x]: processor tracker;
